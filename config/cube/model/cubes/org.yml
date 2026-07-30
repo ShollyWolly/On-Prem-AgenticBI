@@ -1,0 +1,83 @@
+# =============================================================================
+#  Organisation side: staff and stores.
+#
+#  NOTE ON staff.password AND staff.username: deliberately NOT exposed at all,
+#  not even masked. For a credential hash, excluding beats masking -- there is
+#  no legitimate analytical query for it, so the safest representation is
+#  absence. Masking would still put the column name in the model, invite the
+#  agent to select it, and depend on the mask being applied correctly.
+#
+#  staff.email IS exposed-but-masked, because "which employee handled this"
+#  is a real question and the masked form still answers it.
+# =============================================================================
+cubes:
+  - name: staff
+    sql_table: public.staff
+    title: Staff
+    description: >
+      Store employees. Contains PII: staff_email is masked for non-admin roles.
+      Credential columns (password, username) are not modelled at all.
+    public: false
+
+    joins:
+      - name: stores
+        relationship: many_to_one
+        sql: "{CUBE}.store_id = {stores}.store_id"
+
+    dimensions:
+      - name: staff_id
+        sql: staff_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: staff_name
+        sql: "{CUBE}.first_name || ' ' || {CUBE}.last_name"
+        type: string
+        title: Staff Member
+        description: "Employee name. PII."
+        mask:
+          sql: "LEFT({CUBE}.first_name, 1) || '. ' || LEFT({CUBE}.last_name, 1) || '.'"
+
+      - name: staff_email
+        sql: email
+        type: string
+        title: Staff E-mail
+        description: "Employee e-mail. PII."
+        mask:
+          sql: "'***@' || SPLIT_PART({CUBE}.email, '@', 2)"
+
+    measures:
+      - name: staff_count
+        type: count
+        title: Staff
+
+  - name: stores
+    sql_table: public.store
+    title: Stores
+    public: false
+
+    joins:
+      - name: addresses
+        relationship: many_to_one
+        sql: "{CUBE}.address_id = {addresses}.address_id"
+
+    dimensions:
+      - name: store_id
+        sql: store_id
+        type: number
+        primary_key: true
+        public: false
+
+      # Pagila has no store name, only an id. A label reads far better on a
+      # chart axis than a bare integer, and it keeps the agent from presenting
+      # "1" and "2" as though they were counts.
+      - name: store_label
+        sql: "'Store ' || {CUBE}.store_id::text"
+        type: string
+        title: Store
+
+    measures:
+      - name: store_count
+        type: count
+        title: Stores

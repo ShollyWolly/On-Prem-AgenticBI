@@ -1,0 +1,168 @@
+# Physical dataset on the Cube view of the same name.
+#
+# PHYSICAL, not virtual (sql: null). A virtual dataset would trigger
+# transpile_virtual_dataset_sql on import via source_db_engine, which is a
+# needless transformation of SQL that Cube's dialect is fussy about anyway.
+#
+# Columns are declared EXPLICITLY rather than introspected. This is deliberate:
+# never rely on type detection through Cube's pg-wire protocol. is_dttm on the
+# time column is the load-bearing flag -- without it Superset offers no Time
+# Grain and every time-series chart silently degrades.
+table_name: revenue_analytics
+
+# Cube exposes cubes and views as tables in `public`. Set it explicitly: a null
+# schema is rewritten to get_example_default_schema() by ImportExamplesCommand,
+# which would point at an examples database that does not exist here.
+schema: public
+sql: null
+
+main_dttm_col: paid_at
+always_filter_main_dttm: false
+normalize_columns: false
+filter_select_enabled: true
+cache_timeout: 300
+
+database_uuid: 1b0d9e2a-6c41-4f8e-9a3d-000000000001
+uuid: 1b0d9e2a-6c41-4f8e-9a3d-000000000011
+version: 1.0.0
+
+columns:
+  - column_name: paid_at
+    type: TIMESTAMP
+    is_dttm: true
+    groupby: true
+    filterable: true
+    verbose_name: Payment Date
+
+  # --- customer attributes (PII, masked by Cube for the analyst role) ---------
+  - column_name: customers_customer_id
+    type: BIGINT
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Customer ID
+  - column_name: customers_full_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Customer
+    description: Masked by Cube access_policy for non-admin roles.
+  - column_name: customers_email
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Customer E-mail
+    description: PII. Masked by Cube access_policy for non-admin roles.
+  - column_name: customers_is_active
+    type: BOOLEAN
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Active Customer
+
+  # --- geography (place names only -- Pagila has NO lat/long, so no maps) -----
+  - column_name: addresses_phone
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Phone
+    description: PII. Masked by Cube access_policy for non-admin roles.
+  - column_name: addresses_district
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: District
+  - column_name: addresses_postal_code
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Postal Code
+  - column_name: city_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: City
+  - column_name: country_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Country
+
+  # --- org -------------------------------------------------------------------
+  - column_name: store_label
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Store
+  - column_name: staff_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Staff Member
+    description: PII. Masked by Cube access_policy for non-admin roles.
+  - column_name: staff_email
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Staff E-mail
+    description: PII. Masked by Cube access_policy for non-admin roles.
+
+  # --- catalogue -------------------------------------------------------------
+  - column_name: title
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Film
+  - column_name: rating
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: MPAA Rating
+  - column_name: release_year
+    type: BIGINT
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Release Year
+  - column_name: category_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Category
+
+metrics:
+  # MEASURE() rather than SUM()/AVG(). MEASURE() is valid for EVERY Cube measure
+  # type, so the same form is correct for sum, avg and count_distinct alike, and
+  # it cannot double-aggregate an already-aggregated Cube measure. Matched
+  # aggregates do work (SUM on a `sum` measure), but MEASURE() removes the
+  # "Measure aggregation type doesn't match" footgun entirely.
+  - metric_name: total_revenue
+    expression: MEASURE(total_revenue)
+    verbose_name: Revenue
+    metric_type: sum
+    d3format: "$,.2f"
+  - metric_name: payment_count
+    expression: MEASURE(payment_count)
+    verbose_name: Payments
+    d3format: ",d"
+  - metric_name: avg_payment
+    expression: MEASURE(avg_payment)
+    verbose_name: Avg Payment
+    d3format: "$,.2f"
+  - metric_name: paying_customers
+    expression: MEASURE(paying_customers)
+    verbose_name: Paying Customers
+    d3format: ",d"

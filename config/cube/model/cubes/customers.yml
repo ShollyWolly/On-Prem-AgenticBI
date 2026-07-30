@@ -1,0 +1,97 @@
+# Customer master -- carries most of the PII in the demo. `mask:` lives here on
+# the cube; access_policy lives on the views instead (see revenue_analytics.yml).
+# public: false keeps this reachable only through the views, so the agent cannot
+# join cubes directly and hit the e-graph rewriter's node limit.
+cubes:
+  - name: customers
+    sql_table: public.customer
+    title: Customers
+    description: >
+      Customer master with contact details and home store. Contains PII:
+      email, first_name, last_name and full_name are masked for non-admin
+      roles by the access_policy on the views.
+    public: false
+
+    joins:
+      - name: addresses
+        relationship: many_to_one
+        sql: "{CUBE}.address_id = {addresses}.address_id"
+      - name: stores
+        relationship: many_to_one
+        sql: "{CUBE}.store_id = {stores}.store_id"
+
+    dimensions:
+      - name: customer_id
+        sql: customer_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: first_name
+        sql: first_name
+        type: string
+        description: "Given name. PII."
+        mask:
+          sql: "LEFT({CUBE}.first_name, 1) || '.'"
+
+      - name: last_name
+        sql: last_name
+        type: string
+        description: "Family name. PII."
+        mask:
+          sql: "LEFT({CUBE}.last_name, 1) || '.'"
+
+      - name: full_name
+        sql: "{CUBE}.first_name || ' ' || {CUBE}.last_name"
+        type: string
+        title: Customer Name
+        description: "Full name. PII."
+        mask:
+          sql: "LEFT({CUBE}.first_name, 1) || '. ' || LEFT({CUBE}.last_name, 1) || '.'"
+
+      - name: email
+        sql: email
+        type: string
+        description: "E-mail address. PII."
+        # Keeps the domain so 'are these the same organisation' reasoning still
+        # works, while the local part is gone. Recognisably masked rather than
+        # silently blanked -- an analyst can tell the difference between
+        # "redacted" and "missing".
+        mask:
+          sql: "'***@' || SPLIT_PART({CUBE}.email, '@', 2)"
+
+      - name: store_id
+        sql: store_id
+        type: number
+        public: false
+
+      - name: is_active
+        sql: activebool
+        type: boolean
+        title: Active
+
+      - name: created_at
+        sql: create_date
+        type: time
+        title: Customer Since
+        description: >
+          Constant across all 599 rows in Pagila -- NOT usable as a cohort or
+          signup dimension. Present only for completeness.
+
+    measures:
+      - name: customer_count
+        type: count
+        title: Customers
+
+      - name: active_customer_count
+        type: count
+        filters:
+          - sql: "{CUBE}.activebool"
+        title: Active Customers
+
+    segments:
+      - name: active_customers
+        sql: "{CUBE}.activebool"
+      - name: inactive_customers
+        sql: "NOT {CUBE}.activebool"
+        title: Customers

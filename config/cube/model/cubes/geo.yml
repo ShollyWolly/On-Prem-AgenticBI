@@ -1,0 +1,96 @@
+# =============================================================================
+#  Geography chain: address -> city -> country.
+#
+#  There is NO lat/long anywhere in Pagila -- only place names. No map chart is
+#  possible; do not plan one. Country and city are ordinary categorical
+#  dimensions and render as bar charts.
+# =============================================================================
+cubes:
+  - name: addresses
+    sql_table: public.address
+    title: Addresses
+    description: "Postal addresses. Contains PII: phone and street."
+    public: false
+
+    joins:
+      - name: cities
+        relationship: many_to_one
+        sql: "{CUBE}.city_id = {cities}.city_id"
+
+    dimensions:
+      - name: address_id
+        sql: address_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: street
+        sql: address
+        type: string
+        description: "Street address. PII."
+        # NOTE: a bare `mask: "some text"` does NOT work -- Cube parses the value
+        # as an expression, so unquoted words become undefined identifiers and
+        # the whole cube fails to compile ("redacted is not defined"), which
+        # then cascades into every view join path that touches this cube.
+        # Constant masks must be written as an explicit SQL string literal.
+        mask:
+          sql: "'*** redacted ***'"
+
+      - name: district
+        sql: district
+        type: string
+        title: District
+
+      - name: postal_code
+        sql: postal_code
+        type: string
+        title: Postal Code
+
+      - name: phone
+        sql: phone
+        type: string
+        description: "Contact phone number. PII."
+        # Last three digits kept so two records can be told apart without
+        # revealing the number.
+        mask:
+          sql: "'***-***-' || RIGHT({CUBE}.phone, 3)"
+
+  - name: cities
+    sql_table: public.city
+    title: Cities
+    public: false
+
+    joins:
+      - name: countries
+        relationship: many_to_one
+        sql: "{CUBE}.country_id = {countries}.country_id"
+
+    dimensions:
+      - name: city_id
+        sql: city_id
+        type: number
+        primary_key: true
+        public: false
+
+      # `city` would shadow the cube name in some contexts; alias at the source.
+      - name: city_name
+        sql: city
+        type: string
+        title: City
+
+  - name: countries
+    sql_table: public.country
+    title: Countries
+    public: false
+
+    dimensions:
+      - name: country_id
+        sql: country_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: country_name
+        sql: country
+        type: string
+        title: Country

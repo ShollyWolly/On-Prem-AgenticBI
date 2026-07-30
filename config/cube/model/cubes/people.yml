@@ -1,0 +1,75 @@
+# Actors and the film_actor bridge, plus language. Names are written to be
+# self-explanatory (`actor_name`, not `name`) because the agent reaches this
+# through a stock Postgres MCP and sees flat column names -- no titles, no
+# descriptions -- so the member name is the only documentation it gets.
+cubes:
+  - name: actors
+    sql_table: public.actor
+    title: Actors
+    public: false
+
+    joins:
+      - name: film_actors
+        relationship: one_to_many
+        sql: "{CUBE}.actor_id = {film_actors}.actor_id"
+
+    dimensions:
+      - name: actor_id
+        sql: actor_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: actor_name
+        sql: "{CUBE}.first_name || ' ' || {CUBE}.last_name"
+        type: string
+        title: Actor
+        # NOT masked. Actors are public figures in this dataset, not customers --
+        # a deliberate contrast with customers/staff, and a useful talking point:
+        # masking is per-member policy, not a blanket rule on anything name-shaped.
+
+    measures:
+      - name: actor_count
+        type: count
+        title: Actors
+
+  - name: film_actors
+    sql_table: public.film_actor
+    title: Film Cast
+    description: "Bridge table between films and actors. Never queried directly."
+    public: false
+
+    joins:
+      - name: actors
+        relationship: many_to_one
+        sql: "{CUBE}.actor_id = {actors}.actor_id"
+      - name: films
+        relationship: many_to_one
+        sql: "{CUBE}.film_id = {films}.film_id"
+
+    dimensions:
+      # Composite PK upstream (film_id, actor_id); Cube needs one column.
+      - name: id
+        sql: "{CUBE}.film_id::text || '-' || {CUBE}.actor_id::text"
+        type: string
+        primary_key: true
+        public: false
+
+  - name: languages
+    sql_table: public.language
+    title: Languages
+    public: false
+
+    dimensions:
+      - name: language_id
+        sql: language_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: language_name
+        # CHAR(20) upstream, so it arrives space-padded and every GROUP BY shows
+        # 'English             '. Trim at the source.
+        sql: "TRIM({CUBE}.name)"
+        type: string
+        title: Language

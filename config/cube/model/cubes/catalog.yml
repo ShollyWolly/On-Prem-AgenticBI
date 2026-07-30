@@ -1,0 +1,193 @@
+# Film catalogue: film -> film_category -> category, plus the inventory bridge
+# from a rental to both a film and a store.
+#
+# Type casts below are load-bearing, not style: rating is ENUM mpaa_rating (cast
+# ::text or the SQL API reports an opaque type), release_year is DOMAIN year
+# (cast ::integer). special_features/fulltext are array/tsvector and not exposed.
+# length is renamed film_length_minutes -- ambiguous otherwise, and a near-reserved
+# word in Cube's templating.
+cubes:
+  - name: films
+    sql_table: public.film
+    title: Films
+    public: false
+
+    joins:
+      # one_to_one, NOT one_to_many -- see the film_primary_categories cube below.
+      # With one_to_many here, every additive measure fans out by the number of
+      # categories a film has and silently over-reports.
+      - name: film_primary_categories
+        relationship: one_to_one
+        sql: "{CUBE}.film_id = {film_primary_categories}.film_id"
+      - name: film_actors
+        relationship: one_to_many
+        sql: "{CUBE}.film_id = {film_actors}.film_id"
+      - name: languages
+        relationship: many_to_one
+        sql: "{CUBE}.language_id = {languages}.language_id"
+
+    dimensions:
+      - name: film_id
+        sql: film_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: title
+        sql: title
+        type: string
+        title: Film
+
+      - name: rating
+        sql: "{CUBE}.rating::text"
+        type: string
+        title: MPAA Rating
+
+      - name: release_year
+        sql: "{CUBE}.release_year::integer"
+        type: number
+        title: Release Year
+
+      - name: film_length_minutes
+        sql: length
+        type: number
+        title: Runtime (min)
+
+      - name: rental_rate
+        sql: rental_rate
+        type: number
+        title: Rental Rate
+
+      - name: replacement_cost
+        sql: replacement_cost
+        type: number
+        title: Replacement Cost
+
+    measures:
+      # Named film_count, not count: through a stock Postgres MCP the model sees
+      # only flat column names, and a bare `count` in a wide view is ambiguous.
+      - name: film_count
+        type: count
+        title: Films
+
+      - name: avg_rental_rate
+        sql: rental_rate
+        type: avg
+        title: Avg Rental Rate
+
+      - name: avg_replacement_cost
+        sql: replacement_cost
+        type: avg
+        title: Avg Replacement Cost
+
+      - name: avg_runtime_minutes
+        sql: length
+        type: avg
+        title: Avg Runtime (min)
+
+    segments:
+      # Named, reusable filters -- cheaper and less error-prone than the model
+      # re-deriving the same WHERE clause every time.
+      - name: long_films
+        sql: "{CUBE}.length >= 120"
+      - name: family_friendly
+        sql: "{CUBE}.rating::text IN ('G', 'PG')"
+
+  - name: categories
+    sql_table: public.category
+    title: Categories
+    public: false
+
+    dimensions:
+      - name: category_id
+        sql: category_id
+        type: number
+        primary_key: true
+        public: false
+
+      # `name` is too generic to expose through a flat view; alias at the source.
+      - name: category_name
+        sql: name
+        type: string
+        title: Category
+
+  # ONE CATEGORY PER FILM -- a modelling decision, not a passthrough.
+  # public.film_category is many-to-many (2367 rows / 1000 films), so joining it
+  # raw fans every film row out and any additive measure over-reports by ~2.37x
+  # (revenue by category came to 159,539.15 against a true 67,416.51 -- both Cube
+  # and hand-SQL agree, because that is what the join says). Resolved once here
+  # so every consumer gets the additive version; verify.sh V1c asserts it.
+  #
+  # Tiebreak is a HASH of (film_id, category_id), not MIN(category_id): MIN is
+  # stable but correlates with the id, draining revenue monotonically down the
+  # id order (Action $10,289 -> Travel $82) -- a fabricated trend. See
+  # docs/TRAPS.md. Cost: "every category a film belongs to" is not answerable
+  # through the model; that bridge is deliberately not modelled as a second cube.
+  - name: film_primary_categories
+    sql: >
+      SELECT film_id, category_id, category_count
+      FROM (
+        SELECT film_id,
+               category_id,
+               COUNT(*) OVER (PARTITION BY film_id) AS category_count,
+               ROW_NUMBER() OVER (
+                 PARTITION BY film_id
+                 ORDER BY md5(film_id::text || ':' || category_id::text)
+               ) AS rn
+        FROM public.film_category
+      ) ranked
+      WHERE rn = 1
+    title: Film Primary Category
+    description: "One row per film. Collapses the many-to-many film_category bridge."
+    public: false
+
+    joins:
+      - name: categories
+        relationship: many_to_one
+        sql: "{CUBE}.category_id = {categories}.category_id"
+      - name: films
+        relationship: one_to_one
+        sql: "{CUBE}.film_id = {films}.film_id"
+
+    dimensions:
+      # film_id is unique after the GROUP BY, so it is a real primary key -- the
+      # synthesised film_id||'-'||category_id key the raw bridge needed is gone.
+      - name: film_id
+        sql: film_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: category_count
+        sql: category_count
+        type: number
+        title: Categories on this Film
+        description: >
+          How many categories the film is tagged with upstream. Greater than 1
+          means the film's revenue is reported under its primary category only.
+
+  - name: inventory
+    sql_table: public.inventory
+    title: Inventory
+    description: "Physical copies. The hop from a rental to both a film and a store."
+    public: false
+
+    joins:
+      - name: films
+        relationship: many_to_one
+        sql: "{CUBE}.film_id = {films}.film_id"
+      - name: stores
+        relationship: many_to_one
+        sql: "{CUBE}.store_id = {stores}.store_id"
+
+    dimensions:
+      - name: inventory_id
+        sql: inventory_id
+        type: number
+        primary_key: true
+        public: false
+
+    measures:
+      - name: inventory_count
+        type: count
+        title: Inventory Items

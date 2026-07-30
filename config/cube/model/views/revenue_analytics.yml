@@ -1,0 +1,90 @@
+# revenue_analytics -- the primary surface. Grain: payment. Superset datasets and
+# the agent's query() tool target this, never the underlying cubes -- join paths
+# are pre-resolved here, which is what keeps generated SQL under the e-graph
+# rewriter's node limit.
+#
+# access_policy lives on the VIEW, not the cubes: Cube does not inherit
+# member-level policies from cubes into views. See docs/TRAPS.md#cube. Below,
+# `analyst` sees everything except the excluded PII, which member_masking then
+# shows as masked rather than denied. No policy exists for `denied` -- that
+# absence IS the deny; Cube refuses every group without one.
+views:
+  - name: revenue_analytics
+    title: Revenue Analytics
+    description: >
+      Payment-grained revenue fact with customer, geography, store, staff and
+      film attributes. Use this for all revenue and payment questions.
+      Customer e-mail and name, staff name and e-mail, and phone are masked for
+      the analyst role.
+
+    cubes:
+      - join_path: payments
+        includes:
+          - total_revenue
+          - payment_count
+          - avg_payment
+          - paying_customers
+          - paid_at
+
+      - join_path: payments.customers
+        prefix: true
+        includes:
+          - customer_id
+          - full_name
+          - email
+          - is_active
+
+      - join_path: payments.customers.addresses
+        prefix: true
+        includes:
+          - phone
+          - district
+          - postal_code
+
+      # prefix: true only where the name would otherwise be ambiguous -- applied
+      # everywhere it yields noise like `staff_staff_name`. Base-cube members
+      # (payments) are never prefixed.
+      - join_path: payments.customers.addresses.cities
+        includes:
+          - city_name
+
+      - join_path: payments.customers.addresses.cities.countries
+        includes:
+          - country_name
+
+      - join_path: payments.staff
+        includes:
+          - staff_name
+          - staff_email
+
+      - join_path: payments.staff.stores
+        includes:
+          - store_label
+
+      - join_path: payments.rentals.inventory.films
+        includes:
+          - title
+          - rating
+          - release_year
+
+      - join_path: payments.rentals.inventory.films.film_primary_categories.categories
+        includes:
+          - category_name
+
+    access_policy:
+      # ---- analyst: everything except PII, which is masked rather than denied
+      - group: analyst
+        member_level:
+          excludes:
+            - customers_full_name
+            - customers_email
+            - addresses_phone
+            - staff_name
+            - staff_email
+        member_masking:
+          includes: "*"
+
+      # ---- admin: unmasked
+      - group: admin
+        member_level:
+          includes: "*"

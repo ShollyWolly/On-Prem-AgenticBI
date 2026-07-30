@@ -1,0 +1,80 @@
+# =============================================================================
+#  store_performance -- the operational view. Grain: rental.
+#
+#  Deliberately RENTAL grain, not payment: this view answers throughput and
+#  service questions (volume, duration, overdue, who handled it), and rental is
+#  where duration and open/returned state live. For store REVENUE use
+#  revenue_analytics grouped by store_label -- the money lives on the payment
+#  fact and putting it here would fan out.
+#
+#  There are only 2 stores in Pagila, so "by store" comparisons are a 2-bar
+#  chart. The useful axes here are staff, city and film category WITHIN a store.
+# =============================================================================
+views:
+  - name: store_performance
+    title: Store Performance
+    description: >
+      Operational throughput at rental grain: volume, average duration, open and
+      overdue rentals, by store, staff member, city and category. For store
+      revenue use revenue_analytics grouped by store_label instead -- money lives
+      on the payment fact, not here.
+
+    cubes:
+      - join_path: rentals
+        includes:
+          - rental_count
+          - distinct_customers
+          - distinct_films_rented
+          - avg_rental_duration_days
+          - rentals_per_customer
+          - open_rentals
+          - rented_at
+          - returned_at
+          - is_returned
+          # Segments must be listed in the view explicitly -- a segment defined on
+          # a cube is NOT surfaced through a view otherwise, and filtering on it
+          # fails with "Invalid identifier '#overdue_rentals'".
+          - overdue_rentals
+          - returned_rentals
+
+      - join_path: rentals.inventory.stores
+        includes:
+          - store_label
+          - store_count
+
+      - join_path: rentals.inventory
+        includes:
+          - inventory_count
+
+      - join_path: rentals.staff
+        includes:
+          - staff_name
+          - staff_email
+          - staff_count
+
+      - join_path: rentals.inventory.films
+        prefix: true
+        includes:
+          - title
+          - rating
+
+      - join_path: rentals.inventory.films.film_primary_categories.categories
+        includes:
+          - category_name
+
+      - join_path: rentals.customers.addresses.cities
+        includes:
+          - city_name
+
+    access_policy:
+      - group: analyst
+        member_level:
+          excludes:
+            - staff_name
+            - staff_email
+        member_masking:
+          includes: "*"
+
+      - group: admin
+        member_level:
+          includes: "*"

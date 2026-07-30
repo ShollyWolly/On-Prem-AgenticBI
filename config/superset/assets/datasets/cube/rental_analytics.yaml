@@ -1,0 +1,164 @@
+# Physical dataset on the rental_analytics Cube view. See
+# revenue_analytics.yaml for why columns are declared explicitly and why
+# metrics use MEASURE().
+#
+# NOTE: do NOT build a continuous time-series line chart on rented_at. The
+# source data has two consecutive months with zero rentals and it renders as a
+# gap that looks like a data-pipeline fault. Revenue trends belong on
+# revenue_analytics.paid_at.
+table_name: rental_analytics
+schema: public
+sql: null
+
+main_dttm_col: rented_at
+always_filter_main_dttm: false
+normalize_columns: false
+filter_select_enabled: true
+cache_timeout: 300
+
+database_uuid: 1b0d9e2a-6c41-4f8e-9a3d-000000000001
+uuid: 1b0d9e2a-6c41-4f8e-9a3d-000000000012
+version: 1.0.0
+
+columns:
+  - column_name: rented_at
+    type: TIMESTAMP
+    is_dttm: true
+    groupby: true
+    filterable: true
+    verbose_name: Rental Date
+  - column_name: returned_at
+    type: TIMESTAMP
+    is_dttm: true
+    groupby: true
+    filterable: true
+    verbose_name: Return Date
+  - column_name: is_returned
+    type: BOOLEAN
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Returned
+
+  - column_name: customers_customer_id
+    type: BIGINT
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Customer ID
+  - column_name: customers_full_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Customer
+    description: Masked by Cube access_policy for non-admin roles.
+  - column_name: customers_email
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Customer E-mail
+    description: PII. Masked by Cube access_policy for non-admin roles.
+  - column_name: customers_is_active
+    type: BOOLEAN
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Active Customer
+
+  - column_name: addresses_phone
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Phone
+    description: PII. Masked by Cube access_policy for non-admin roles.
+  - column_name: addresses_district
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: District
+  - column_name: city_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: City
+  - column_name: country_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Country
+
+  - column_name: store_label
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Store
+  - column_name: staff_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Staff Member
+    description: PII. Masked by Cube access_policy for non-admin roles.
+  - column_name: staff_email
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Staff E-mail
+    description: PII. Masked by Cube access_policy for non-admin roles.
+
+  - column_name: title
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Film
+  - column_name: rating
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: MPAA Rating
+  - column_name: release_year
+    type: BIGINT
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Release Year
+  - column_name: film_length_minutes
+    type: BIGINT
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Runtime (min)
+  - column_name: category_name
+    type: STRING
+    is_dttm: false
+    groupby: true
+    filterable: true
+    verbose_name: Category
+
+metrics:
+  - metric_name: rental_count
+    expression: MEASURE(rental_count)
+    verbose_name: Rentals
+    d3format: ",d"
+  - metric_name: distinct_customers
+    expression: MEASURE(distinct_customers)
+    verbose_name: Distinct Customers
+    d3format: ",d"
+  - metric_name: avg_rental_duration_days
+    expression: MEASURE(avg_rental_duration_days)
+    verbose_name: Avg Rental Duration (days)
+    d3format: ",.2f"
+  - metric_name: open_rentals
+    expression: MEASURE(open_rentals)
+    verbose_name: Not Yet Returned
+    d3format: ",d"

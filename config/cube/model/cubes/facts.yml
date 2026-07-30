@@ -1,0 +1,164 @@
+# =============================================================================
+#  The two fact cubes. They are SEPARATE on purpose -- see model/views/.
+#
+#  Measured in the seeded data: rental_date and payment_date are generated
+#  independently in this Pagila fork (the date shift needed 1425 days for
+#  rentals and 1462 for payments). 51% of rentals postdate the last payment,
+#  and rentals have a two-month hole. So:
+#    - ALL revenue trends go on payments.paid_at
+#    - rentals is for volume/duration questions only
+#  Joining payments into a rental-grained view would also fan out SUM(amount).
+# =============================================================================
+cubes:
+  - name: rentals
+    sql_table: public.rental
+    title: Rentals
+    description: >
+      One row per rental transaction. Grain: rental. WARNING: the source data
+      has two consecutive months with no rentals at all, so a continuous line
+      chart on rental date shows a gap. Use the payments cube for revenue
+      trends.
+    public: false
+
+    joins:
+      - name: customers
+        relationship: many_to_one
+        sql: "{CUBE}.customer_id = {customers}.customer_id"
+      - name: inventory
+        relationship: many_to_one
+        sql: "{CUBE}.inventory_id = {inventory}.inventory_id"
+      - name: staff
+        relationship: many_to_one
+        sql: "{CUBE}.staff_id = {staff}.staff_id"
+
+    dimensions:
+      - name: rental_id
+        sql: rental_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: rented_at
+        sql: rental_date
+        type: time
+        title: Rental Date
+
+      - name: returned_at
+        sql: return_date
+        type: time
+        title: Return Date
+
+      - name: is_returned
+        sql: "{CUBE}.return_date IS NOT NULL"
+        type: boolean
+        title: Returned
+
+    measures:
+      - name: rental_count
+        type: count
+        title: Rentals
+
+      - name: distinct_customers
+        sql: customer_id
+        type: count_distinct
+        title: Distinct Customers
+
+      - name: avg_rental_duration_days
+        # Trustworthy ONLY because 30-date-shift.sql moves rental_date and
+        # return_date by the identical interval. Verified in the seeded data:
+        # 0.75-9.25 days, mean 5.03, zero negatives.
+        sql: "EXTRACT(EPOCH FROM ({CUBE}.return_date - {CUBE}.rental_date)) / 86400.0"
+        type: avg
+        title: Avg Rental Duration (days)
+
+      - name: open_rentals
+        type: count
+        filters:
+          - sql: "{CUBE}.return_date IS NULL"
+        title: Not Yet Returned
+
+      - name: distinct_films_rented
+        sql: inventory_id
+        type: count_distinct
+        title: Distinct Copies Rented
+
+      - name: rentals_per_customer
+        sql: "{rental_count} / NULLIF({distinct_customers}, 0)"
+        type: number
+        title: Rentals per Customer
+
+    segments:
+      - name: overdue_rentals
+        # Not returned and rented more than the mean duration (5 days) ago.
+        # Synthetic but defensible, and it gives the agent a realistic
+        # "operational exception" to find.
+        sql: "{CUBE}.return_date IS NULL AND {CUBE}.rental_date < now() - interval '5 days'"
+      - name: returned_rentals
+        sql: "{CUBE}.return_date IS NOT NULL"
+
+  - name: payments
+    # The partitioned parent. Postgres routes reads across the monthly
+    # partitions transparently, so Cube needs to know nothing about them.
+    sql_table: public.payment
+    title: Payments
+    description: >
+      One row per payment. Grain: payment. Payment dates are evenly distributed
+      (~2.4-2.7k rows/month), which is why every revenue time series is built
+      on this cube rather than on rentals.
+    public: false
+
+    joins:
+      - name: customers
+        relationship: many_to_one
+        sql: "{CUBE}.customer_id = {customers}.customer_id"
+      - name: staff
+        relationship: many_to_one
+        sql: "{CUBE}.staff_id = {staff}.staff_id"
+      - name: rentals
+        relationship: many_to_one
+        sql: "{CUBE}.rental_id = {rentals}.rental_id"
+
+    dimensions:
+      - name: payment_id
+        sql: payment_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: paid_at
+        sql: payment_date
+        type: time
+        title: Payment Date
+
+    measures:
+      - name: total_revenue
+        sql: amount
+        type: sum
+        title: Revenue
+
+      - name: payment_count
+        type: count
+        title: Payments
+
+      - name: avg_payment
+        sql: amount
+        type: avg
+        title: Avg Payment
+
+      - name: paying_customers
+        sql: customer_id
+        type: count_distinct
+        title: Paying Customers
+
+      - name: max_payment
+        sql: amount
+        type: max
+        title: Largest Single Payment
+
+      - name: revenue_per_payment
+        # A calculated measure: Cube composes it from the two underlying
+        # measures rather than re-scanning, so it stays correct under any
+        # grouping the model asks for.
+        sql: "{total_revenue} / NULLIF({payment_count}, 0)"
+        type: number
+        title: Revenue per Payment

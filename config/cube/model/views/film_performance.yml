@@ -1,0 +1,75 @@
+# =============================================================================
+#  film_performance -- catalogue economics. Grain: payment.
+#
+#  The interesting question this makes answerable: a film's LIST price
+#  (rental_rate) versus what it ACTUALLY earned (total_revenue) and how often it
+#  was rented. That gap is where the insight is -- cheap films that rent
+#  constantly can out-earn expensive ones that sit on the shelf.
+#
+#  Includes actors, so "which actors appear in the highest-earning films" works.
+#  Actor names are deliberately NOT masked: they are public catalogue data, not
+#  customer PII -- a useful demonstration that masking is a per-member policy
+#  decision, not a blanket rule on anything that looks like a name.
+# =============================================================================
+views:
+  - name: film_performance
+    title: Film Performance
+    description: >
+      Catalogue economics at payment grain. Compare films_rental_rate (list
+      price) against total_revenue and rental volume. Group by title, category,
+      rating, language or actor_name. No customer PII in this view at all.
+
+    cubes:
+      - join_path: payments
+        includes:
+          - total_revenue
+          - payment_count
+          - avg_payment
+          - revenue_per_payment
+
+      - join_path: payments.rentals.inventory.films
+        prefix: true
+        includes:
+          - title
+          - rating
+          - release_year
+          - film_length_minutes
+          - rental_rate
+          - replacement_cost
+          - film_count
+          - avg_rental_rate
+          - avg_replacement_cost
+          - avg_runtime_minutes
+          # Segments must be included explicitly to be usable through the view.
+          - long_films
+          - family_friendly
+
+      - join_path: payments.rentals.inventory.films.languages
+        includes:
+          - language_name
+
+      - join_path: payments.rentals.inventory.films.film_primary_categories.categories
+        includes:
+          - category_name
+
+      - join_path: payments.rentals.inventory.films.film_actors.actors
+        includes:
+          - actor_name
+          - actor_count
+
+      - join_path: payments.rentals.inventory.stores
+        includes:
+          - store_label
+
+    access_policy:
+      # No PII members here, so both policies are identical -- but BOTH must
+      # still exist. A group with no policy is denied outright, so omitting the
+      # analyst entry would make this view invisible to analysts rather than
+      # open. Explicit is safer than clever.
+      - group: analyst
+        member_level:
+          includes: "*"
+
+      - group: admin
+        member_level:
+          includes: "*"

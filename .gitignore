@@ -1,0 +1,24 @@
+# Secrets
+.env
+.env.local
+*.pem
+*.jwk
+*.jwks
+
+# Upstream sources, cloned by bootstrap.sh (see README for pinned refs)
+vendor/
+
+# Local agent working notes. The traps it records that a contributor needs are
+# in docs/TRAPS.md, which IS committed.
+CLAUDE.md
+
+# Superset asset export scratch
+bundle.zip
+_export/
+
+# Local scratch
+*.log
+tmp/
+__pycache__/
+*.pyc
+.venv/

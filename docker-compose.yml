@@ -1,0 +1,839 @@
+name: agentic-bi
+
+# On-Prem Agentic BI PoC. Profiles: (default) userstore+data+BI,
+# chat = agent tier, sandbox = python execution, cubestore = pre-aggregations.
+# First run, in order: up -d, --profile sandbox up -d, --profile chat up -d.
+
+x-superset-image: &superset-image
+  build:
+    context: ./docker/superset
+  image: abi/superset:6.1.0-psycopg2
+
+x-superset-env: &superset-env
+  # Regenerating this makes every stored DB credential undecryptable, and it does
+  # not self-heal. `:?` fails fast rather than falling back to the insecure default.
+  SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?generate once with scripts/gen-secrets.sh, then never rotate}
+  SUPERSET_METADATA_URI: postgresql+psycopg2://${SUPERSET_DB_USER:-superset}:${SUPERSET_DB_PASSWORD:?}@postgres:5432/${SUPERSET_DB_NAME:-superset}
+  SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
+  # The LDAP password on purpose, not a second secret: admin@demo.local is ONE
+  # person and ONE ab_user row, and the SUPERSET_AUTH=db break-glass path is
+  # worthless if it needs a password nobody wrote down. A separate local account
+  # would need a DIFFERENT e-mail.
+  SUPERSET_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?}
+  SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@demo.local}
+  # Superset holds ONE Cube credential, so this single value decides what the
+  # shared dashboard shows. analyst => masked PII.
+  CUBE_SQL_USER: ${SUPERSET_CUBE_SQL_USER:-analyst@demo.local}
+  CUBE_SQL_PASSWORD: ${CUBEJS_SQL_PASSWORD:?}
+  SUPERSET_ENV: production
+  SUPERSET_LOAD_EXAMPLES: "no"
+  PYTHONUNBUFFERED: "1"
+  # Cube's first uncached query can exceed gunicorn's 60s default.
+  GUNICORN_TIMEOUT: "180"
+  SUPERSET_MCP_READER_PASSWORD: ${SUPERSET_MCP_READER_PASSWORD:?}
+  # SUPERSET_AUTH=db is break-glass: under AUTH_LDAP, FAB authenticates only
+  # against the directory, so an unreachable slapd locks everyone out.
+  SUPERSET_AUTH: ${SUPERSET_AUTH:-ldap}
+  LDAP_URL: ldap://openldap:389
+  LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=demo,dc=local}
+  LDAP_ADMIN_DN: ${LDAP_ADMIN_DN:-cn=admin,dc=demo,dc=local}
+  LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD:?}
+
+x-superset-volumes: &superset-volumes
+  - ./config/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+  - ./config/superset/assets:/app/assets:ro
+  # Charts, the MCP service account and the LDAP username realignment are all
+  # built in code, so a clean `up -d` reproduces the demo with no click-path.
+  - ./config/superset/build_dashboard.py:/app/build_dashboard.py:ro
+  - ./config/superset/create_mcp_reader.py:/app/create_mcp_reader.py:ro
+  - ./config/superset/align_ldap_usernames.py:/app/align_ldap_usernames.py:ro
+  - superset_home:/app/superset_home
+
+services:
+
+  # OpenLDAP -- single userstore for Superset and LibreChat. osixia ships
+  # OpenLDAP 2.4.57 (upstream-EOL); acceptable because NO PORT IS PUBLISHED.
+  # See docs/TRAPS.md. Tree created by scripts/init-ldap.sh, not a bootstrap LDIF.
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: abi-openldap
+    environment:
+      LDAP_ORGANISATION: ${LDAP_ORGANISATION:-Demo Corp}
+      LDAP_DOMAIN: ${LDAP_DOMAIN:-demo.local}
+      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD:?}
+      LDAP_CONFIG_PASSWORD: ${LDAP_ADMIN_PASSWORD:?}
+      # Off deliberately: traffic never leaves the compose network. Do not copy
+      # this anywhere real -- simple bind sends the password in clear.
+      LDAP_TLS: "false"
+      LDAP_REMOVE_CONFIG_AFTER_SETUP: "true"
+    volumes:
+      # Named, never bind-mounted: the working tree is OneDrive-synced.
+      - ldap_data:/var/lib/ldap
+      - ldap_config:/etc/ldap/slapd.d
+    healthcheck:
+      # ROOT DSE (empty base), not the suffix: an anonymous search of the suffix
+      # returns err=32 "No such object" even though the entry exists, because the
+      # ACLs hide it and OpenLDAP reports hidden as absent -- so that probe calls a
+      # healthy directory unhealthy. Contents are asserted by init-ldap.sh and V20,
+      # which bind properly.
+      test:
+        - CMD
+        - ldapsearch
+        - -x
+        - -H
+        - ldap://localhost
+        - -b
+        - ""
+        - -s
+        - base
+        - namingContexts
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    networks: [abi]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Demo warehouse: Pagila, date-shifted. Also hosts Superset's metadata DB and
+  # the RAG vector store as separate DATABASES in the same instance.
+  # ---------------------------------------------------------------------------
+  postgres:
+    # pgvector, not plain postgres: the RAG API stores embeddings as `vector`
+    # columns in the vectordb database. Same major version, so PGDATA is portable.
+    image: pgvector/pgvector:0.8.1-pg17-bookworm
+    container_name: abi-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:-pagila}
+      # Pinned so the date shift is reproducible regardless of host.
+      TZ: UTC
+      PGTZ: UTC
+      LANG: C.UTF-8
+      # Consumed by 00-databases-and-roles.sh
+      SUPERSET_DB_NAME: ${SUPERSET_DB_NAME:-superset}
+      SUPERSET_DB_USER: ${SUPERSET_DB_USER:-superset}
+      SUPERSET_DB_PASSWORD: ${SUPERSET_DB_PASSWORD:?}
+      CUBE_DB_USER: ${CUBE_DB_USER:-cube_ro}
+      CUBE_DB_PASSWORD: ${CUBE_DB_PASSWORD:?}
+      VECTOR_DB_NAME: ${VECTOR_DB_NAME:-vectordb}
+      VECTOR_DB_USER: ${VECTOR_DB_USER:-vectoruser}
+      VECTOR_DB_PASSWORD: ${VECTOR_DB_PASSWORD:?}
+    volumes:
+      # Named volume, never a bind mount: a bind-mounted PGDATA on /mnt/c fails on
+      # fsync/permissions, and OneDrive would re-scan it continuously.
+      - pgdata:/var/lib/postgresql/data
+      - ./config/postgres/initdb.d:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Not 5432: avoids clashing with a local Postgres install.
+      - "${POSTGRES_HOST_PORT:-55432}:5432"
+    healthcheck:
+      # Two gates, both load-bearing:
+      #  1. -h 127.0.0.1 forces TCP. During initdb.d the temp server listens on the
+      #     unix socket only, so a socket probe reports ready MID-SEED and Cube
+      #     starts against half-loaded Pagila.
+      #  2. The seed_complete sentinel (99-*.sql) proves the date shift finished.
+      # -U is not cosmetic: without it pg_isready sends the OS user and Postgres
+      # logs `FATAL: role "root" does not exist` every 5s forever.
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -h 127.0.0.1 -p 5432 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -q &&
+          psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc
+          'select 1 from public.seed_complete' | grep -q 1
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 60s
+    networks: [abi]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Cube Core -- the semantic layer and the governance boundary.
+  # Postgres-wire SQL API on :15432, REST/meta on :4000.
+  # ---------------------------------------------------------------------------
+  cube:
+    image: cubejs/cube:v1.6.70
+    container_name: abi-cube
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      # demo = masking ENFORCED, dev = Playground with masking DISABLED.
+      # Never demo on dev: CUBEJS_DEV_MODE disables member-level access control.
+      - ./config/env/cube.common.env
+      - ./config/env/cube.${CUBE_MODE:-demo}.env
+    environment:
+      CUBEJS_DB_TYPE: postgres
+      CUBEJS_DB_HOST: postgres
+      CUBEJS_DB_PORT: "5432"
+      CUBEJS_DB_NAME: ${POSTGRES_DB:-pagila}
+      CUBEJS_DB_USER: ${CUBE_DB_USER:-cube_ro}
+      CUBEJS_DB_PASS: ${CUBE_DB_PASSWORD:?}
+      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:?}
+      CUBEJS_SQL_USER: ${CUBEJS_SQL_USER:-cube}
+      CUBEJS_SQL_PASSWORD: ${CUBEJS_SQL_PASSWORD:?}
+      # THE identity map, read by cube.js checkSqlAuth. Any e-mail not listed
+      # resolves to `denied`, which matches no access_policy.
+      CUBE_USER_ROLE_MAP: ${CUBE_USER_ROLE_MAP:?}
+    volumes:
+      # Only the model dir and config file: mounting the project root shadows
+      # /cube/conf/node_modules.
+      - ./config/cube/model:/cube/conf/model:ro
+      - ./config/cube/cube.js:/cube/conf/cube.js:ro
+    ports:
+      - "${CUBE_API_HOST_PORT:-4000}:4000"
+      - "${CUBE_PG_HOST_PORT:-15432}:15432"
+    healthcheck:
+      # node, NOT curl: the image purges curl and wget, so a curl probe never
+      # passes and every `depends_on: service_healthy` deadlocks forever.
+      # /readyz is at the ROOT of :4000, not under /cubejs-api/v1.
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          require('http').get('http://127.0.0.1:4000/readyz',
+          r => process.exit(r.statusCode === 200 ? 0 : 1))
+          .on('error', () => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [abi]
+    restart: unless-stopped
+
+  # Optional, for pre-aggregations only: docker compose --profile cubestore up -d,
+  # then set CUBEJS_CUBESTORE_HOST=cubestore in config/env/cube.demo.env.
+  # -non-avx tag for CPUs without AVX.
+  cubestore:
+    image: cubejs/cubestore:v1.6.70
+    container_name: abi-cubestore
+    profiles: [cubestore]
+    environment:
+      CUBESTORE_SERVER_NAME: cubestore:9999
+      CUBESTORE_META_PORT: "9999"
+      CUBESTORE_PORT: "3030"
+      CUBESTORE_REMOTE_DIR: /cube/data
+    volumes:
+      - cubestore_data:/cube/data
+    networks: [abi]
+    restart: unless-stopped
+
+  # Superset web. Provisioning runs in this container's own startup, idempotent,
+  # rather than a one-shot service. INLINE, not a mounted .sh -- a CRLF line
+  # ending there dies at startup. No Redis/Celery: --workers 1 is what keeps
+  # in-process SimpleCache coherent; raising SERVER_WORKER_AMOUNT needs RedisCache
+  # first, or dashboard filter state breaks non-deterministically.
+  superset:
+    <<: *superset-image
+    container_name: abi-superset
+    depends_on:
+      postgres:
+        condition: service_healthy
+      cube:
+        condition: service_healthy
+      # Under AUTH_LDAP every login binds to the directory, and starting early
+      # makes the first login fail as if the password were wrong.
+      openldap:
+        condition: service_healthy
+    environment: *superset-env
+    volumes: *superset-volumes
+    entrypoint: ["/bin/bash", "-euo", "pipefail", "-c"]
+    command:
+      - |
+        echo "-- 1/8 metadata schema migration --"
+        superset db upgrade
+
+        echo "-- 2/8 admin user (idempotent) --"
+        superset fab create-admin \
+          --username  "$${SUPERSET_ADMIN_USER}" \
+          --firstname Agentic \
+          --lastname  BI \
+          --email     "$${SUPERSET_ADMIN_EMAIL}" \
+          --password  "$${SUPERSET_ADMIN_PASSWORD}" \
+          || echo "   admin already exists - continuing"
+
+        echo "-- 3/8 roles and permissions --"
+        superset init
+
+        echo "-- 4/8 render asset bundle --"
+        # import-directory does not substitute placeholders (Superset does that
+        # only for its own packaged examples), so render into a writable copy.
+        # This sed does not url-encode, which is why CUBEJS_SQL_PASSWORD is
+        # enforced alphanumeric.
+        rm -rf /tmp/assets && cp -r /app/assets /tmp/assets
+        sed -i "s#__CUBE_SQLALCHEMY_URI__#postgresql+psycopg2://$${CUBE_SQL_USER}:$${CUBE_SQL_PASSWORD}@cube:15432/cube#" \
+          /tmp/assets/databases/cube.yaml
+
+        echo "-- 5/8 import database + datasets --"
+        # No -u/--username: import-directory does not accept one.
+        superset import-directory /tmp/assets -o
+
+        echo "-- 6/8 align usernames to e-mail (required by AUTH_LDAP) --"
+        # FAB matches the local record on username == the e-mail typed at login,
+        # but create-admin above set username=admin. Without this the LDAP login
+        # tries to REGISTER, dies on the unique e-mail index, and surfaces as a
+        # bare 401 that looks like a wrong password. Idempotent.
+        python /app/align_ldap_usernames.py
+
+        echo "-- 7/8 read-only MCP service account --"
+        # The MCP server has no per-user identity, so this account's role is the
+        # entire security boundary. Idempotent.
+        python /app/create_mcp_reader.py
+
+        echo "-- 8/8 build charts + dashboard --"
+        # Built in code, so `down -v && up -d` reproduces the demo unattended.
+        python /app/build_dashboard.py
+
+        echo "-- provisioning complete, starting web server --"
+        exec /usr/bin/run-server.sh
+    ports:
+      - "${SUPERSET_HOST_PORT:-8088}:8088"
+    healthcheck:
+      # Pinned rather than inherited: the upstream probe is `curl -f` and the
+      # stock 6.1.0 image has no curl, so it can never pass.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8088/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Must cover WORST-CASE PROVISIONING, not server boot: /health cannot answer
+      # until all 8 steps finish. At 90s a cold fresh volume (~7min) was marked
+      # unhealthy, which failed superset-mcp's depends_on and aborted bootstrap.
+      start_period: 600s
+    networks: [abi]
+    restart: unless-stopped
+
+  # Cube access for the agent: TWO stock postgres-mcp containers, one per role.
+  # Identity is bound to the CONTAINER (a demo prop, not governance): it follows
+  # the agent, not the signed-in person. Safe as a stock server because Cube
+  # itself refuses `__user` switching and masks survive `SELECT *`. Works over
+  # Cube's partial-Postgres API only because postgres-mcp uses psycopg3 with
+  # client-side binding (simple query protocol); asyncpg cannot. Real per-user
+  # masking would need JWT claims into Cube's REST API, which this cannot send.
+  postgres-mcp-analyst:
+    image: crystaldba/postgres-mcp:0.3.0
+    container_name: abi-postgres-mcp-analyst
+    profiles: [chat]
+    depends_on:
+      cube:
+        condition: service_healthy
+    environment:
+      # libpq keyword/value form, not a URI: the username is an e-mail and '@'
+      # in a URI userinfo section would need %40 encoding.
+      DATABASE_URI: "host=cube port=15432 dbname=cube user=analyst@demo.local password=${CUBEJS_SQL_PASSWORD:?} application_name=pgmcp-analyst"
+    # unrestricted, not lax: `restricted` rejects MEASURE() via its pglast
+    # allowlist, and MEASURE() is required for every Cube measure type. Cube
+    # itself refuses INSERT/DROP and connects as SELECT-only cube_ro.
+    # --sse-host is mandatory: the default binds container loopback only.
+    command: ["--access-mode=unrestricted", "--transport=sse", "--sse-host=0.0.0.0", "--sse-port=8000"]
+    expose: ["8000"]
+    ports:
+      - "${PGMCP_ANALYST_HOST_PORT:-8001}:8000"
+    networks: [abi]
+    restart: unless-stopped
+
+  postgres-mcp-admin:
+    image: crystaldba/postgres-mcp:0.3.0
+    container_name: abi-postgres-mcp-admin
+    profiles: [chat]
+    depends_on:
+      cube:
+        condition: service_healthy
+    environment:
+      DATABASE_URI: "host=cube port=15432 dbname=cube user=admin@demo.local password=${CUBEJS_SQL_PASSWORD:?} application_name=pgmcp-admin"
+    # unrestricted for the same reason as the analyst container (MEASURE()).
+    command: ["--access-mode=unrestricted", "--transport=sse", "--sse-host=0.0.0.0", "--sse-port=8000"]
+    expose: ["8000"]
+    ports:
+      - "${PGMCP_ADMIN_HOST_PORT:-8002}:8000"
+    networks: [abi]
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:8.0.20
+    container_name: abi-mongodb
+    profiles: [chat]
+    # --noauth matches upstream's own compose; the port is never published.
+    # Enable auth for anything beyond a PoC.
+    command: mongod --noauth
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks: [abi]
+    restart: unless-stopped
+
+  # LibreChat's RAG API -- backs file_search. Built from source like librechat
+  # and codeapi. The FULL Dockerfile, never Dockerfile.lite: lite drops
+  # sentence-transformers and can only call a remote embedder, which would send
+  # document text off-host. No vectordb container: a third database in Postgres.
+  rag-api:
+    build:
+      context: ./vendor/rag_api
+      # Ours, not vendor/rag_api/Dockerfile: upstream's opencv pins send pip into
+      # unbounded backtracking that looks exactly like a hang. See that file.
+      dockerfile: ../../docker/rag-api/Dockerfile
+    image: abi/rag-api:0.8.0
+    container_name: abi-rag-api
+    profiles: [chat]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      RAG_PORT: "8000"
+      # Explicit so an upstream default change cannot strand it on localhost.
+      RAG_HOST: 0.0.0.0
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      POSTGRES_DB: ${VECTOR_DB_NAME:-vectordb}
+      POSTGRES_USER: ${VECTOR_DB_USER:-vectoruser}
+      POSTGRES_PASSWORD: ${VECTOR_DB_PASSWORD:?}
+      # Local embeddings: 384-dim, ~90 MB.
+      EMBEDDINGS_PROVIDER: huggingface
+      EMBEDDINGS_MODEL: sentence-transformers/all-MiniLM-L6-v2
+      HF_HOME: /app/hf
+      # Fetched once into the named volume below; after that no network is
+      # needed. Offline mode is not forced because the first start must download
+      # it. V22 asserts the weights are actually cached.
+      SENTENCE_TRANSFORMERS_HOME: /app/hf
+      JWT_SECRET: ${JWT_SECRET:?}
+    volumes:
+      # Named volume: thousands of small files under a OneDrive-synced tree.
+      - ragmodels:/app/hf
+    ports:
+      # FastAPI's interactive API reference. Keep the document-search API local
+      # to the host; LibreChat continues to use the private compose address.
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      # python, not curl: the image is slim and has none.
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=5).status==200 else 1)
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      # Generous: the first start downloads the model.
+      start_period: 300s
+    networks: [abi]
+    restart: unless-stopped
+
+  # LibreChat, built from source. Meilisearch provides private full-text search
+  # over the user's own conversations; it is not exposed on a host port.
+  librechat:
+    build:
+      context: ./vendor/LibreChat
+      # Ours, not vendor/LibreChat/Dockerfile: upstream's swallows a failed
+      # frontend build (`npm run frontend;`), which on Windows always fails --
+      # yielding an image that builds "successfully" then crash-loops.
+      dockerfile: ../../docker/librechat/Dockerfile
+    image: abi/librechat:v0.8.7
+    container_name: abi-librechat
+    profiles: [chat]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      postgres-mcp-analyst:
+        condition: service_started
+      postgres-mcp-admin:
+        condition: service_started
+      rag-api:
+        condition: service_healthy
+      openldap:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/LibreChat
+      CONFIG_PATH: /app/librechat.yaml
+      # Pinned here, not in .env: unset, LibreChat does not error -- it just omits
+      # the file_search tool, so the capability looks broken.
+      RAG_API_URL: http://rag-api:8000
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?}
+
+      # LDAP strategy is gated on BOTH LDAP_URL and LDAP_USER_SEARCH_BASE -- one
+      # without the other and it is silently not registered. On a stack with
+      # existing local users, run migrate-librechat-ldap.sh first (see its header).
+      LDAP_URL: ldap://openldap:389
+      LDAP_BIND_DN: ${LDAP_ADMIN_DN:-cn=admin,dc=demo,dc=local}
+      LDAP_BIND_CREDENTIALS: ${LDAP_ADMIN_PASSWORD:?}
+      LDAP_USER_SEARCH_BASE: ou=people,${LDAP_BASE_DN:-dc=demo,dc=local}
+      # The FULL e-mail, matching Superset's AUTH_LDAP_UID_FIELD=mail, so both
+      # front doors take the same string. Explicit because it is load-bearing,
+      # even though it matches the default.
+      LDAP_SEARCH_FILTER: mail={{username}}
+      # false => the login field is the e-mail address, not a separate username.
+      LDAP_LOGIN_USES_USERNAME: "false"
+      # Must match what migrate-librechat-ldap.sh wrote, or the strategy creates a
+      # second user instead of matching the migrated one.
+      LDAP_ID: uid
+      LDAP_EMAIL: mail
+      LDAP_FULL_NAME: displayName
+      # sandbox profile. If it is down the agent just has no execute_code tool.
+      LIBRECHAT_CODE_BASEURL: http://codeapi:3112/v1
+      # Pinned so .env cannot break it: signing without key material throws at
+      # TOOL-EXECUTE time, costing execute_code and all data access. See
+      # docs/TRAPS.md. codeapi's localAuth never reads the header. V17 guards it.
+      CODEAPI_AUTH_PROVIDER: none
+    volumes:
+      - ./config/librechat/librechat.yaml:/app/librechat.yaml:ro
+      # Subdirectory by subdirectory on purpose: mounting api/ whole shadows the
+      # image's /app/api/node_modules and the container dies on
+      # `Cannot find module 'compression'`.
+      - ./vendor/LibreChat/api/server:/app/api/server
+      - ./vendor/LibreChat/api/app:/app/api/app
+      - ./vendor/LibreChat/api/models:/app/api/models
+      - ./vendor/LibreChat/api/utils:/app/api/utils
+      - ./vendor/LibreChat/api/strategies:/app/api/strategies
+      - ./vendor/LibreChat/api/db:/app/api/db
+      - ./vendor/LibreChat/api/cache:/app/api/cache
+      # client/ is deliberately NOT mounted: the Vite bundle lives in
+      # /app/client/dist inside the image and a mount shadows it into a blank
+      # page. Front-end edits need `docker compose build librechat`.
+      - librechat_images:/app/client/public/images
+      - librechat_uploads:/app/uploads
+      - librechat_logs:/app/logs
+    ports:
+      - "${LIBRECHAT_HOST_PORT:-3080}:3080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://127.0.0.1:3080/health',
+          r => process.exit(r.statusCode < 500 ? 0 : 1))
+          .on('error', () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 60s
+    networks: [abi]
+    restart: unless-stopped
+
+  # LibreChat stores a local full-text index of messages and conversation titles
+  # here. It is deliberately private: only LibreChat reaches it over the compose
+  # network, and its master key never leaves the environment file.
+  meilisearch:
+    image: getmeili/meilisearch:v1.35.1
+    container_name: abi-meilisearch
+    profiles: [chat]
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?}
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --spider http://127.0.0.1:7700/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [abi]
+    restart: unless-stopped
+
+  # Superset's own MCP server, reading existing charts. Same image as the web
+  # service, different command. --host 0.0.0.0 is mandatory: the CLI default
+  # binds container loopback only. streamable-http at :5008/mcp; no Redis needed.
+  superset-mcp:
+    <<: *superset-image
+    container_name: abi-superset-mcp
+    profiles: [chat]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      superset:
+        condition: service_healthy
+    environment: *superset-env
+    volumes: *superset-volumes
+    entrypoint: ["/bin/bash", "-euo", "pipefail", "-c"]
+    command:
+      - |
+        echo "-- starting Superset MCP service on :5008 --"
+        exec superset mcp run --host 0.0.0.0 --port 5008
+    expose: ["5008"]
+    ports:
+      - "${SUPERSET_MCP_HOST_PORT:-5008}:5008"
+    healthcheck:
+      # NOT `curl -fsS`: GET /mcp correctly answers 405 (the route is POST-only)
+      # and -f treats that as failure, leaving the container "starting" forever
+      # while the server is fine. A 405 is the proof the route exists.
+      test:
+        - CMD-SHELL
+        - >-
+          curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5008/mcp
+          | grep -qE '^(200|400|405|406)$$'
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    networks: [abi]
+    restart: unless-stopped
+
+  # SANDBOX PROFILE -- python execution: docker compose --profile sandbox up -d.
+  # Five services plus object storage is the verified floor: file-server.ts
+  # hardcodes an S3 client with no local-filesystem backend, and Redis/BullMQ
+  # carries the job queue. LOCAL_MODE=true skips codeapi's JWT handshake, so
+  # sessions bucket under one principal; authorisation lives in Cube, not here.
+
+  # Object storage. Garage, not MinIO -- MinIO relicensed and gutted its
+  # community edition. Bootstrapped once by scripts/init-garage.sh (idempotent).
+  # Do NOT pin below v2.x: see docs/TRAPS.md. Secrets in the environment, not
+  # garage.toml -- Garage refuses to start if that file is group-readable.
+  garage:
+    image: dxflrs/garage:v2.3.0
+    container_name: abi-garage
+    profiles: [sandbox]
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?}
+    volumes:
+      - ./config/garage/garage.toml:/etc/garage.toml:ro
+      - garage_meta:/var/lib/garage/meta
+      - garage_data:/var/lib/garage/data
+    expose:
+      - "3900"
+      - "3903"
+    healthcheck:
+      # EXEC form, not CMD-SHELL: the image is distroless with no /bin/sh, so a
+      # shell-form probe can never run and the container sits "unhealthy" forever.
+      #
+      # A 0 here only means the daemon answers RPC -- storing anything also needs
+      # the layout that init-garage.sh applies. V15 covers that difference.
+      test: ["CMD", "/garage", "-c", "/etc/garage.toml", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks: [abi]
+    restart: unless-stopped
+
+  codeapi-redis:
+    image: redis:7-alpine
+    container_name: abi-codeapi-redis
+    profiles: [sandbox]
+    command: redis-server --requirepass ${CODEAPI_REDIS_PASSWORD:?}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${CODEAPI_REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [abi]
+    restart: unless-stopped
+
+  codeapi-files:
+    build:
+      context: ./vendor/code-interpreter
+      dockerfile: service/Dockerfile
+      target: production
+    image: abi/codeapi-files:latest
+    container_name: abi-codeapi-files
+    profiles: [sandbox]
+    depends_on:
+      garage:
+        condition: service_healthy
+      codeapi-redis:
+        condition: service_healthy
+    environment:
+      MINIO_BUCKET: ${MINIO_BUCKET:-codeapi-files}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-garage}
+      MINIO_PORT: ${MINIO_PORT:-3900}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-codeapi}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?}
+      FILE_SERVER_PORT: "3000"
+      REDIS_HOST: codeapi-redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${CODEAPI_REDIS_PASSWORD:?}
+      CODEAPI_INTERNAL_SERVICE_TOKEN: ${CODEAPI_INTERNAL_SERVICE_TOKEN:?}
+    expose:
+      - "3000"
+    networks: [abi]
+    restart: unless-stopped
+
+  # Brokers programmatic tool calling: the sandbox calls a stub, this parks the
+  # continuation, LibreChat runs the real MCP tool and posts the result back.
+  codeapi-toolcall:
+    build:
+      context: ./vendor/code-interpreter
+      dockerfile: service/Dockerfile.tool-call-server
+      target: production
+    image: abi/codeapi-toolcall:latest
+    container_name: abi-codeapi-toolcall
+    profiles: [sandbox]
+    depends_on:
+      codeapi-redis:
+        condition: service_healthy
+    environment:
+      TOOL_CALL_SERVER_PORT: "3033"
+      TOOL_CALL_REQUEST_TIMEOUT: "300000"
+      TOOL_CALL_SESSION_EXPIRY: "600"
+      REDIS_HOST: codeapi-redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${CODEAPI_REDIS_PASSWORD:?}
+      CODEAPI_INTERNAL_SERVICE_TOKEN: ${CODEAPI_INTERNAL_SERVICE_TOKEN:?}
+    expose:
+      - "3033"
+    networks: [abi]
+    restart: unless-stopped
+
+  # NsJail executor: /dev/kvm does not exist in Docker Desktop, so the libkrun
+  # microVM path cannot work. Shares the HOST KERNEL -- weaker isolation, fine
+  # for two named internal users, not for untrusted code.
+  codeapi-sandbox:
+    build:
+      context: ./vendor/code-interpreter
+      dockerfile: api/Dockerfile
+      target: sandbox-build
+    image: abi/codeapi-sandbox:latest
+    container_name: abi-codeapi-sandbox
+    profiles: [sandbox]
+    entrypoint: ["/sandbox_api/entrypoint.sh"]
+    privileged: false
+    devices:
+      # Satisfies the mapping without a real KVM device.
+      - /dev/null:/dev/kvm
+    security_opt:
+      - seccomp=./vendor/code-interpreter/seccomp/nsjail.json
+    cap_add:
+      - SYS_ADMIN
+      - SYS_CHROOT
+      - SYS_PTRACE
+      - SETUID
+      - SETGID
+      - NET_ADMIN
+      - DAC_OVERRIDE
+      - DAC_READ_SEARCH
+      - CHOWN
+      - FOWNER
+      - FSETID
+      - KILL
+      - SETFCAP
+      - MKNOD
+    volumes:
+      # Populated once by scripts/build-sandbox-packages.sh.
+      - codeapi_pkgs:/pkgs:ro
+    environment:
+      KVM_ENABLED: "false"
+      SANDBOX_USE_CGROUPV2: "false"
+      SANDBOX_REMOVE_UMOUNT_AFTER_STARTUP: "false"
+      SANDBOX_PACKAGES_DIRECTORY: /pkgs
+      SANDBOX_LOG_LEVEL: INFO
+      SANDBOX_MAX_PROCESS_COUNT: "100"
+      SANDBOX_PER_JOB_UIDS: "true"
+      SANDBOX_JOB_UID_BASE: "200000"
+      SANDBOX_JOB_GID_BASE: "200000"
+      SANDBOX_WORKSPACE_REAPER_MAX_AGE_SECONDS: "3600"
+      SANDBOX_RUN_CPU_TIME: "60000"
+      SANDBOX_RUN_TIMEOUT: "300000"
+      SANDBOX_OUTPUT_MAX_SIZE: "65536"
+      # Executed code has NO network. The tool-call server is the only reachable
+      # port, which is what makes programmatic tool calling possible at all.
+      SANDBOX_DISABLE_NETWORKING: "true"
+      SANDBOX_ALLOWED_LOCAL_NETWORK_PORT: "3033"
+      SANDBOX_FORWARD_TARGET: codeapi-toolcall:3033
+      FILE_SERVER_URL: http://codeapi-files:3000
+      CODEAPI_INTERNAL_SERVICE_TOKEN: ${CODEAPI_INTERNAL_SERVICE_TOKEN:?}
+    depends_on:
+      codeapi-toolcall:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bun -e "fetch('http://localhost:2000/api/v2/runtimes').then(r =>
+          process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    networks: [abi]
+    restart: unless-stopped
+
+  # The /v1 gateway LibreChat talks to. Dockerfile.local builds the combined
+  # API+workers process, so there is no separate worker service.
+  codeapi:
+    build:
+      context: ./vendor/code-interpreter
+      dockerfile: service/Dockerfile.local
+      target: production
+    image: abi/codeapi:latest
+    container_name: abi-codeapi
+    profiles: [sandbox]
+    depends_on:
+      codeapi-redis:
+        condition: service_healthy
+      codeapi-sandbox:
+        condition: service_healthy
+      codeapi-files:
+        condition: service_started
+      codeapi-toolcall:
+        condition: service_started
+    environment:
+      LOCAL_MODE: "true"
+      PORT: "3112"
+      SANDBOX_ENDPOINT: http://codeapi-sandbox:2000/api/v2
+      FILE_SERVER_URL: http://codeapi-files:3000
+      TOOL_CALL_SERVER_URL: http://codeapi-toolcall:3033
+      CODEAPI_INTERNAL_SERVICE_TOKEN: ${CODEAPI_INTERNAL_SERVICE_TOKEN:?}
+      REDIS_HOST: codeapi-redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${CODEAPI_REDIS_PASSWORD:?}
+      PYTHON_CONCURRENCY: "1"
+      OTHER_CONCURRENCY: "8"
+      JOB_WINDOW: "1000"
+      # Must be >= TOOL_CALL_REQUEST_TIMEOUT or tool calls die halfway through.
+      JOB_TIMEOUT: "300000"
+      PTC_MODE: ${PTC_MODE:-replay}
+    ports:
+      - "${CODEAPI_HOST_PORT:-3112}:3112"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bun -e "fetch('http://localhost:3112/v1/health').then(r =>
+          process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [abi]
+    restart: unless-stopped
+
+networks:
+  abi:
+    name: agentic-bi
+    driver: bridge
+
+volumes:
+  pgdata:
+  superset_home:
+  cubestore_data:
+  mongo_data:
+  ldap_data:
+  ldap_config:
+  garage_meta:
+  garage_data:
+  # HuggingFace cache: `down -v` costs one ~90 MB re-download, not a rebuild.
+  ragmodels:
+  # A from-source PGO build of CPython plus ~120 wheels: 2.7 GB, 20-45 min to
+  # produce, by scripts/build-sandbox-packages.sh. EXTERNAL on purpose -- as a
+  # project volume, `down -v` would silently destroy it and the next `up` would
+  # look like it had hung. Executed code has no network, so nothing installs later.
+  codeapi_pkgs:
+    name: agentic-bi_codeapi_pkgs
+    external: true
+  librechat_images:
+  librechat_uploads:
+  librechat_logs:
+  meilisearch_data:

@@ -1,0 +1,6 @@
+# version must be EXACTLY 1.0.0 -- MetadataSchema enforces validate.Equal.
+# `type` is deliberately omitted: load_configs_from_directory strips it anyway
+# ("removing 'type' from the metadata allows us to import any exported model"),
+# which is what lets one directory hold databases + datasets + charts +
+# dashboards together.
+version: 1.0.0
