@@ -26,13 +26,13 @@ SET row_security = off;
 ALTER SCHEMA public OWNER TO postgres;
 
 --
--- Name: bıgınt; Type: DOMAIN; Schema: public; Owner: postgres
+-- Name: bigint; Type: DOMAIN; Schema: public; Owner: postgres
 --
 
-CREATE DOMAIN public."bıgınt" AS bigint;
+CREATE DOMAIN public."bigint" AS bigint;
 
 
-ALTER DOMAIN public."bıgınt" OWNER TO postgres;
+ALTER DOMAIN public."bigint" OWNER TO postgres;
 
 --
 -- Name: mpaa_rating; Type: TYPE; Schema: public; Owner: postgres

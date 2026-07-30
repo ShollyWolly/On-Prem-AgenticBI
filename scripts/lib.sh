@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # Shared helpers. Source this, do not execute it.
 #
-# Bash rather than PowerShell throughout: PowerShell 5.1's Invoke-RestMethod hangs
-# indefinitely against LibreChat's API even though the server answers in under a
-# second, and cmdlet behaviour differs enough between 5.1 and 7 to be a liability
-# in a demo.
+# Scripts use Bash and standard command-line tools consistently.
 
 set -euo pipefail
 
@@ -65,16 +62,8 @@ rand_alnum() {
 rand_garage_key() { printf 'GK%s' "$(openssl rand -hex 12)"; }
 
 # -----------------------------------------------------------------------------
-#  Docker wrappers. Git Bash rewrites Unix-looking absolute paths into Windows
-#  paths before calling a native .exe, so
-#      docker exec abi-garage /garage -c /etc/garage.toml status
-#  becomes  docker exec abi-garage "C:/Program Files/Git/garage" ...  and fails as
-#  if the container were broken.
-#
-#  MSYS_NO_PATHCONV=1 stops that, but it must be scoped PER CALL: exported
-#  globally, curl.exe stops understanding `-o /dev/null` and `docker cp` gets an
-#  unconverted host path and reports `CreateFile C:\c: ...`. Both observed.
-#  Inert on Linux and macOS.
+#  Docker wrappers scope the compatibility environment required when a command
+#  passes absolute container paths. Keep it local to each Docker invocation.
 # -----------------------------------------------------------------------------
 host_path() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi

@@ -2,7 +2,7 @@
 
 - Revenue is captured payments, reported on **payment date**; it is gross (refunds
   are not modelled). Revenue per payment is not list price. A paying customer has
-  a captured payment in the period; “active” is an administrative flag, not
+  a captured payment in the period; "active" is an administrative flag, not
   engagement. Customer lifetime value is revenue to date. Overdue means unreturned
   for more than five days. Category uses one primary category, so category revenue
   must reconcile to total revenue.

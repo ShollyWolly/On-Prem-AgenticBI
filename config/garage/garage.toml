@@ -3,7 +3,7 @@
 #
 # NO SECRETS HERE: rpc_secret / admin_token come from GARAGE_RPC_SECRET /
 # GARAGE_ADMIN_TOKEN instead. Garage refuses to start if a config file holding
-# secrets is group/world-readable, which a bind mount on Docker Desktop always is.
+# secrets is group/world-readable, which Garage rejects.
 
 metadata_dir = "/var/lib/garage/meta"
 data_dir     = "/var/lib/garage/data"

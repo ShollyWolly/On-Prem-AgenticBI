@@ -67,7 +67,7 @@ services:
       LDAP_TLS: "false"
       LDAP_REMOVE_CONFIG_AFTER_SETUP: "true"
     volumes:
-      # Named, never bind-mounted: the working tree is OneDrive-synced.
+      # Named volume: directory data must not depend on host filesystem semantics.
       - ldap_data:/var/lib/ldap
       - ldap_config:/etc/ldap/slapd.d
     healthcheck:
@@ -121,8 +121,7 @@ services:
       VECTOR_DB_USER: ${VECTOR_DB_USER:-vectoruser}
       VECTOR_DB_PASSWORD: ${VECTOR_DB_PASSWORD:?}
     volumes:
-      # Named volume, never a bind mount: a bind-mounted PGDATA on /mnt/c fails on
-      # fsync/permissions, and OneDrive would re-scan it continuously.
+      # Named volume: PostgreSQL data requires reliable fsync and ownership semantics.
       - pgdata:/var/lib/postgresql/data
       - ./config/postgres/initdb.d:/docker-entrypoint-initdb.d:ro
     ports:
@@ -222,8 +221,8 @@ services:
     restart: unless-stopped
 
   # Superset web. Provisioning runs in this container's own startup, idempotent,
-  # rather than a one-shot service. INLINE, not a mounted .sh -- a CRLF line
-  # ending there dies at startup. No Redis/Celery: --workers 1 is what keeps
+  # rather than a one-shot service. Inline, not a mounted shell script. No
+  # Redis/Celery: --workers 1 is what keeps
   # in-process SimpleCache coherent; raising SERVER_WORKER_AMOUNT needs RedisCache
   # first, or dashboard filter state breaks non-deterministically.
   superset:
@@ -404,7 +403,7 @@ services:
       SENTENCE_TRANSFORMERS_HOME: /app/hf
       JWT_SECRET: ${JWT_SECRET:?}
     volumes:
-      # Named volume: thousands of small files under a OneDrive-synced tree.
+      # Named volume: the model cache contains thousands of small files.
       - ragmodels:/app/hf
     ports:
       # FastAPI's interactive API reference. Keep the document-search API local
@@ -433,8 +432,8 @@ services:
     build:
       context: ./vendor/LibreChat
       # Ours, not vendor/LibreChat/Dockerfile: upstream's swallows a failed
-      # frontend build (`npm run frontend;`), which on Windows always fails --
-      # yielding an image that builds "successfully" then crash-loops.
+      # frontend build (`npm run frontend;`), which can yield an image that builds
+      # "successfully" then crash-loops after a swallowed failure.
       dockerfile: ../../docker/librechat/Dockerfile
     image: abi/librechat:v0.8.7
     container_name: abi-librechat
@@ -687,8 +686,7 @@ services:
     networks: [abi]
     restart: unless-stopped
 
-  # NsJail executor: /dev/kvm does not exist in Docker Desktop, so the libkrun
-  # microVM path cannot work. Shares the HOST KERNEL -- weaker isolation, fine
+  # NsJail executor. It shares the host kernel -- weaker isolation, fine
   # for two named internal users, not for untrusted code.
   codeapi-sandbox:
     build:

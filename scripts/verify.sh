@@ -249,10 +249,10 @@ if check V7 "Cube tolerates DATE_TRUNC(x) AS x (Superset's grain pattern)"; then
 fi
 
 # =============================================================================
-# V8 / V9 -- Windows/OneDrive environmental traps.
+# V8 / V9 -- source-file integrity.
 # =============================================================================
-if check V8 'No bind-mounted file has been dehydrated by OneDrive'; then
-  # A cloud-only placeholder reads as zero bytes inside a container, which
+if check V8 'Required source files are present and non-empty'; then
+  # A missing source file can read as zero bytes inside a container, which
   # produces a baffling empty seed. Any tracked text file of size 0 is suspect.
   # Assert the scan roots EXIST first: `find` on a missing path yields nothing, so
   # a moved directory would make this check pass without scanning anything.
@@ -265,11 +265,11 @@ if check V8 'No bind-mounted file has been dehydrated by OneDrive'; then
     "$([ -z "$missing_roots" ] && echo 1 || echo 0)" "${missing_roots:-config scripts docker}"
 
   empties="$(find "${scan_roots[@]}" -type f -size 0 2>/dev/null | head -5)"
-  assert 'no zero-byte (dehydrated) files' "$([ -z "$empties" ] && echo 1 || echo 0)" \
+  assert 'no unexpected zero-byte files' "$([ -z "$empties" ] && echo 1 || echo 0)" \
     "${empties:-all files present}"
 fi
 
-if check V9 'No CR bytes in anything a Linux container executes'; then
+if check V9 'Container-executed source files use LF line endings'; then
   bad=""
   for d in config docker scripts; do
     [ -d "${REPO_ROOT}/${d}" ] || die "V9 scan root ${d} missing -- check would be vacuous"
@@ -281,8 +281,8 @@ if check V9 'No CR bytes in anything a Linux container executes'; then
   grep -qU $'\r' "${REPO_ROOT}/docker-compose.yml" 2>/dev/null && bad="${bad}docker-compose.yml "
   assert 'no CR bytes in mounted/executed files' "$([ -z "$bad" ] && echo 1 || echo 0)" "${bad:-clean}"
 
-  # The vendored clones are separate repos, so this project's .gitattributes does
-  # not protect them. core.autocrlf=true WILL break their shell scripts
+  # Vendored clones are separate repos, so this checkout's attributes do not
+  # protect them. Non-LF endings break their shell scripts
   # (#!/bin/sh\r -> exit 127 "not found") and, worse, silently break codeapi's
   # matplotlib.py template injection.
   apt="${REPO_ROOT}/vendor/code-interpreter/docker/apt-install.sh"

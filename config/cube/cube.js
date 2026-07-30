@@ -1,5 +1,5 @@
 /**
- * Cube Core configuration — the identity half of the governance boundary.
+ * Cube Core configuration - the identity half of the governance boundary.
  *
  *   SQL username -> checkSqlAuth -> securityContext -> contextToGroups
  *                -> access_policy on the views -> masked / real / denied
@@ -23,7 +23,7 @@ for (const [email, entry] of Object.entries(ROLE_MAP)) {
 }
 
 // Fail closed by construction: `denied` is the DEFAULT branch, not an else-if, and it
-// appears in no access_policy — Cube denies every group without one, so there is no
+// appears in no access_policy - Cube denies every group without one, so there is no
 // deny rule to forget. The connection still succeeds, so an unknown user gets a clean
 // "not authorized" error rather than an opaque connection failure.
 function identityFor(username) {

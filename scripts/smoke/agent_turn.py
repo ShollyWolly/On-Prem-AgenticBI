@@ -10,9 +10,8 @@ Every component smoke test bypasses LibreChat, so none of them can catch a broke
 agent record, a tool-id typo, or an MCP server that LibreChat's SSRF guard has
 silently blocked.
 
-Stdlib only (urllib), for the same reason as provision_agent.py: Windows
-PowerShell 5.1's Invoke-RestMethod hangs against this API even though the server
-answers promptly, and the response is an SSE stream.
+Stdlib only (urllib), so the smoke test has no additional host dependency and can
+read LibreChat's SSE response stream directly.
 """
 from __future__ import annotations
 
@@ -26,10 +25,8 @@ import uuid
 
 BASE = os.environ.get("LIBRECHAT_URL", "http://localhost:3080")
 
-# A model answer routinely contains characters cp1252 cannot encode (an approx
-# sign, an en dash, a euro), and Python's default Windows console encoding IS
-# cp1252 -- so printing the answer raises UnicodeEncodeError *after* the whole
-# turn succeeded, which reads as a failed agent.
+# A model answer can contain characters a restrictive host console cannot encode.
+# Force UTF-8 so a successful turn is not reported as a printing failure.
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -39,7 +36,7 @@ for _stream in (sys.stdout, sys.stderr):
 # Mandatory. LibreChat's uaParser middleware answers {"message":"Illegal request"}
 # without a browser-like User-Agent, and it does so on the SSE channel, where it
 # reads as a model failure rather than a rejected request.
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
 USERS = {

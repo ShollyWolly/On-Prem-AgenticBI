@@ -5,9 +5,8 @@ Runs on the HOST against the published LibreChat port. Uses only the standard
 library (urllib), so it needs no pip install and no container to borrow -- the
 previous version ran inside cube-mcp, which no longer exists.
 
-Implemented in Python rather than PowerShell because Windows PowerShell 5.1's
-Invoke-RestMethod hangs indefinitely against LibreChat's API even when the server
-answers in under a second, and shelling out to curl.exe hit the same wall.
+Implemented in standard-library Python so provisioning has no additional host
+dependency.
 
 Agents cannot be declared in librechat.yaml (issue #7741 is open;
 `interface.agents` only seeds role permissions), so scripted creation is the
@@ -60,7 +59,7 @@ BASE = os.environ.get("LIBRECHAT_URL", "http://localhost:3080")
 # User-Agent, answering {"message":"Illegal request"} on an SSE channel -- which
 # looks nothing like a header problem.
 UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
@@ -140,7 +139,7 @@ def call(method: str, path: str, body: dict | None = None,
                 urllib.error.URLError, TimeoutError) as e:
             if attempt == attempts:
                 raise
-            print(f"  {method} {path}: {type(e).__name__} — retrying in {delay:.0f}s "
+            print(f"  {method} {path}: {type(e).__name__} - retrying in {delay:.0f}s "
                   f"({attempt}/{attempts})", file=sys.stderr)
             time.sleep(delay)
             delay = min(delay * 2, 20.0)

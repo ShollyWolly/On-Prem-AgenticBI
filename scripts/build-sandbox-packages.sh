@@ -7,7 +7,7 @@
 # demo (pandas, numpy, matplotlib, seaborn, plotly, scikit-learn, ...).
 #
 # The container route rather than upstream's ./build-packages.sh, because it
-# writes to a named volume instead of the OneDrive-synced tree and supports
+# writes to a named volume instead of the source tree and supports
 # PYTHON_PACKAGE_INSTALLER=uv.
 #
 # /pkgs/.initialized is the idempotence marker.

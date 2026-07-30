@@ -1,6 +1,4 @@
-# CRLF is a structural failure mode here, not a style preference.
-# A .sql or .sh file with CRLF that gets bind-mounted into a Linux container
-# dies with `$'\r': command not found` or a psql syntax error.
+# Container-executed text files must retain LF line endings.
 * text=auto eol=lf
 
 *.sql        text eol=lf

@@ -23,12 +23,12 @@ cd "$REPO_ROOT"
 
 # -----------------------------------------------------------------------------
 step "1/8  Vendoring upstream sources"
-# core.autocrlf=false is not optional on Windows, and .gitattributes cannot help
-# because these are separate repositories. Two silent failures came from it:
+# Vendored repositories do not inherit this checkout's .gitattributes. Preserve
+# LF line endings while cloning and normalize any text files that do not comply:
 #   *.sh -> `#!/bin/sh\r` makes the kernel report "not found", so the sandbox
 #           build dies with a bare `exit code: 127` that points nowhere.
 #   *.py -> codeapi injects user code by regex-matching `# BEGIN USER CODE\n`.
-#           With CRLF the match fails SILENTLY, leaving a comment-only function
+#           With non-LF endings the match fails SILENTLY, leaving a comment-only function
 #           body, so every plot fails with an IndentationError in code the user
 #           never wrote.
 clone_pinned() {
