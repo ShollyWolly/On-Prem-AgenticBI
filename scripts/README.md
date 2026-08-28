@@ -1,43 +1,48 @@
 # scripts/
 
-Everything that runs on the **host**, in bash. There are no init containers: each
-step is an idempotent script `bootstrap.sh` calls in order, so any one of them can
-be re-run on its own without tearing the stack down.
+Host-side, idempotent operational scripts. `bootstrap.sh` calls the appropriate
+ones during first setup; each can also be re-run for the documented recovery use.
 
-## Run during bootstrap
+## Setup and recovery
 
-| Script | When | Idempotent |
+| Script | Use | Notes |
 |---|---|---|
-| `fetch-pagila.sh` | before first `up` | yes - skips if the SQL is already vendored |
-| `gen-secrets.sh --apply` | before first `up` | yes - only fills keys still set to `CHANGE_ME` |
-| `init-ldap.sh` | after `openldap` is healthy | yes - re-applies passwords and asserts every bind |
-| `build-sandbox-packages.sh` | once, sandbox profile | yes - `/pkgs/.initialized` is the marker |
-| `init-garage.sh` | after `garage` is healthy | yes |
-| `migrate-librechat-ldap.sh` | **before the first LDAP login** | yes - no-op once users are `provider=ldap` |
-| `provision-agent.sh` | after `librechat` is healthy | yes - updates the agents in place |
+| `gen-secrets.sh` | Create local secrets | Use `--apply --force` only for initial setup or a deliberate reset. |
+| `fetch-pagila.sh` | Fetch the pinned Pagila SQL | Skips existing seed files unless forced. |
+| `init-ldap.sh` | Reconcile demo LDAP users and groups | Re-applies passwords and validates binds. |
+| `patch-librechat-oidc.sh` | Apply the pinned LibreChat OIDC patch | Bootstrap runs it after cloning the vendor source. |
+| `migrate-librechat-oidc.sh` | Preserve legacy LibreChat records during OIDC migration | Safe to re-run; compatibility wrapper `migrate-librechat-ldap.sh` calls it. |
+| `provision-agent.sh` | Repair managed agents for existing OIDC users | Normal first OIDC login provisions agents automatically. |
+| `init-vectordb.sh` | Create the RAG vector database on existing PostgreSQL state | `initdb.d` only runs for a new volume. |
+| `init-garage.sh` | Initialize sandbox object storage | Requires the sandbox Garage service. |
+| `build-sandbox-packages.sh` | Prebuild sandbox Python packages | Uses the package-volume marker for idempotence. |
 
-## Run on demand
+## Validation
 
-- `verify.sh` - the check suite. `./scripts/verify.sh` for all of it,
-  `./scripts/verify.sh V1 V7` for named checks.
-- `init-vectordb.sh` - creates the RAG vector database on a stack whose `PGDATA`
-  already exists. `initdb.d` only fires on an empty volume, so this is the upgrade
-  path for anything already seeded.
-- `smoke/` - three end-to-end tests, standard library or `httpx`, all runnable
-  from the host. `agent_turn.py` is the only one that goes *through* LibreChat, so
-  it is the only one that can catch a broken agent record or a blocked MCP server.
+`verify.sh` is the operator verification suite.
 
-`lib.sh` is sourced, never executed: logging, `.env` reading, and the docker
-wrappers.
+```bash
+bash ./scripts/verify.sh V1
+bash ./scripts/verify.sh V4
+bash ./scripts/verify.sh
+```
 
-## The one thing to be careful with
+- `V1` verifies Cube masks, deny behavior, and data reconciliation.
+- `V4` verifies the OAuth-protected Cube MCP endpoint and Authentik JWKS signing
+  key.
+- `V20` verifies LDAP and Authentik configuration.
+- `V21` verifies the Superset MCP read-only boundary.
 
-**`verify.sh` deliberately disables `pipefail`, and `lib.sh` deliberately does
-not.** The suite tests with `printf ... | grep -q PATTERN`. `grep -q` closes the
-pipe on its first match, killing `printf` with SIGPIPE (141), and under `pipefail`
-the pipeline reports 141 instead of grep's 0 - so a check fails *precisely when
-its pattern matches early*, which reads like a real regression. Keep
-`set +o pipefail` there.
+`smoke/test_cube_mcp.py` validates the Cube MCP protocol. `smoke/test_superset_mcp.py`
+validates Superset MCP behavior. `smoke/agent_turn.py` is the end-to-end LibreChat
+agent test and is the only smoke test that exercises a real managed-agent record.
 
-Use the `lib.sh` Docker wrappers (`dexec`, `dcp_to`, `compose_x`, `docker_x`)
-rather than calling `docker` directly when a command passes a container path.
+`lib.sh` is sourced by shell scripts and provides logging, `.env` lookup, and
+Docker wrappers. Use its wrappers for commands that reference container paths.
+
+## Shell behavior
+
+`verify.sh` intentionally disables `pipefail`; `lib.sh` does not. Some assertions
+use `printf | grep -q`, where an early matching `grep` can close the pipe and make
+`printf` return SIGPIPE. Enabling `pipefail` in the suite turns a successful match
+into an apparent failure.

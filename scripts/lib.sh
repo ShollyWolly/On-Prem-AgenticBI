@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Shared helpers. Source this, do not execute it.
-#
-# Scripts use Bash and standard command-line tools consistently.
 
 set -euo pipefail
 
@@ -24,8 +21,6 @@ step()  { printf '\n%s=== %s ===%s\n' "$C_CYAN" "$*" "$C_RESET"; }
 
 die() { err "$*"; exit 1; }
 
-# Reads .env without sourcing it: values contain characters a shell would
-# interpret, e.g. the JSON in CUBE_USER_ROLE_MAP and spaces in LDAP_ORGANISATION.
 env_get() {
   local key="$1" file="${2:-$ENV_FILE}"
   [ -f "$file" ] || return 1
@@ -42,14 +37,6 @@ env_require() {
 rand_hex()   { openssl rand -hex "$1"; }
 rand_b64()   { openssl rand -base64 "$1"; }
 
-# Alphanumeric only: used where a value is interpolated without url-encoding,
-# notably CUBEJS_SQL_PASSWORD, which Superset's provisioning seds into a URI.
-#
-# Do NOT rewrite as `tr -dc ... < /dev/urandom | head -c N`. /dev/urandom never
-# ends, so head closes the pipe and tr dies with SIGPIPE (141); under the pipefail
-# set above, a caller doing `if value="$(rand_alnum 24)"` then takes the FALSE
-# branch while holding a perfectly good value. Racy too, so it looks intermittent.
-# A finite source (openssl) lets tr reach EOF normally.
 rand_alnum() {
   local want="$1" out=""
   while [ "${#out}" -lt "$want" ]; do
@@ -58,13 +45,8 @@ rand_alnum() {
   printf '%.*s' "$want" "$out"
 }
 
-# Garage access keys must be "GK" plus exactly 24 hex characters.
 rand_garage_key() { printf 'GK%s' "$(openssl rand -hex 12)"; }
 
-# -----------------------------------------------------------------------------
-#  Docker wrappers scope the compatibility environment required when a command
-#  passes absolute container paths. Keep it local to each Docker invocation.
-# -----------------------------------------------------------------------------
 host_path() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
 }
@@ -75,7 +57,6 @@ dcp_to() { MSYS_NO_PATHCONV=1 docker cp "$(host_path "$1")" "$2"; }
 
 compose() { ( cd "$REPO_ROOT" && docker compose "$@" ); }
 
-# For compose subcommands whose arguments include container paths.
 compose_x() { ( cd "$REPO_ROOT" && MSYS_NO_PATHCONV=1 docker compose "$@" ); }
 docker_x()  { MSYS_NO_PATHCONV=1 docker "$@"; }
 
@@ -96,8 +77,6 @@ wait_healthy() {
   return 1
 }
 
-# An SSE endpoint intentionally keeps its response open. curl may time out after
-# receiving the status, so use that status as the readiness signal.
 wait_http_status() {
   local url="$1" expected="$2" timeout="${3:-120}" waited=0 status
   while [ "$waited" -lt "$timeout" ]; do

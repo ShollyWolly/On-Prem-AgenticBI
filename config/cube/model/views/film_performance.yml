@@ -1,16 +1,3 @@
-# =============================================================================
-#  film_performance -- catalogue economics. Grain: payment.
-#
-#  The interesting question this makes answerable: a film's LIST price
-#  (rental_rate) versus what it ACTUALLY earned (total_revenue) and how often it
-#  was rented. That gap is where the insight is -- cheap films that rent
-#  constantly can out-earn expensive ones that sit on the shelf.
-#
-#  Includes actors, so "which actors appear in the highest-earning films" works.
-#  Actor names are deliberately NOT masked: they are public catalogue data, not
-#  customer PII -- a useful demonstration that masking is a per-member policy
-#  decision, not a blanket rule on anything that looks like a name.
-# =============================================================================
 views:
   - name: film_performance
     title: Film Performance
@@ -40,7 +27,6 @@ views:
           - avg_rental_rate
           - avg_replacement_cost
           - avg_runtime_minutes
-          # Segments must be included explicitly to be usable through the view.
           - long_films
           - family_friendly
 
@@ -62,10 +48,6 @@ views:
           - store_label
 
     access_policy:
-      # No PII members here, so both policies are identical -- but BOTH must
-      # still exist. A group with no policy is denied outright, so omitting the
-      # analyst entry would make this view invisible to analysts rather than
-      # open. Explicit is safer than clever.
       - group: analyst
         member_level:
           includes: "*"

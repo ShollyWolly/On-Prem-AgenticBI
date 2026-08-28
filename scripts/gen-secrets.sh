@@ -1,26 +1,4 @@
 #!/usr/bin/env bash
-# Generate every secret the stack needs and write them into .env.
-#
-# Creates .env from .env.example if missing, then replaces each CHANGE_ME
-# placeholder with a random value of the right SHAPE for that key. The shapes are
-# not interchangeable:
-#
-#   CREDS_KEY            exactly 64 hex chars  (32 bytes) -- LibreChat won't boot otherwise
-#   CREDS_IV             exactly 32 hex chars  (16 bytes) -- ditto
-#   CUBEJS_SQL_PASSWORD  [A-Za-z0-9] only -- Superset's provisioning step injects it
-#                        into a SQLAlchemy URI with sed and does NOT url-encode it,
-#                        so @ : / # ? % would corrupt the connection string
-#   MINIO_ACCESS_KEY     "GK" + 24 hex -- Garage's required access-key format
-#   GARAGE_RPC_SECRET    exactly 64 hex chars
-#
-# Idempotent: only CHANGE_ME values are touched. That matters because
-# SUPERSET_SECRET_KEY encrypts Superset's stored DB credentials (rotating it is
-# NOT self-healing) and CUBEJS_API_SECRET signs Cube's REST API JWTs.
-#
-# Usage:
-#   scripts/gen-secrets.sh            # dry run
-#   scripts/gen-secrets.sh --apply    # write .env
-#   scripts/gen-secrets.sh --apply --force   # regenerate everything (destructive)
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -28,9 +6,6 @@ APPLY=0
 FORCE=0
 for arg in "$@"; do
   case "$arg" in
-    --apply) APPLY=1 ;;
-    --force) FORCE=1 ;;
-    *) die "unknown argument: $arg" ;;
   esac
 done
 
@@ -45,6 +20,11 @@ generate_for() {
     CUBE_DB_PASSWORD)               rand_alnum 28 ;;
     VECTOR_DB_PASSWORD)             rand_alnum 28 ;;
     LDAP_ADMIN_PASSWORD)            rand_alnum 28 ;;
+    AUTHENTIK_SECRET_KEY)            rand_hex 32 ;;
+    AUTHENTIK_POSTGRES_PASSWORD)    rand_alnum 28 ;;
+    AUTHENTIK_BOOTSTRAP_PASSWORD)   rand_alnum 28 ;;
+    AUTHENTIK_BOOTSTRAP_TOKEN)      rand_hex 32 ;;
+    AUTHENTIK_LIBRECHAT_CLIENT_SECRET) rand_alnum 40 ;;
     CUBEJS_SQL_PASSWORD)            rand_alnum 42 ;;
     SUPERSET_MCP_READER_PASSWORD)   rand_alnum 24 ;;
     DEMO_ANALYST_PASSWORD)          rand_alnum 20 ;;
@@ -53,6 +33,7 @@ generate_for() {
     CREDS_IV)                       rand_hex 16 ;;
     JWT_SECRET)                     rand_hex 32 ;;
     JWT_REFRESH_SECRET)             rand_hex 32 ;;
+    OPENID_SESSION_SECRET)          rand_hex 32 ;;
     CODEAPI_INTERNAL_SERVICE_TOKEN) rand_b64 32 ;;
     CODEAPI_EGRESS_GRANT_SECRET)    rand_b64 32 ;;
     CODEAPI_REDIS_PASSWORD)         rand_alnum 28 ;;
@@ -60,7 +41,6 @@ generate_for() {
     GARAGE_ADMIN_TOKEN)             rand_hex 32 ;;
     MINIO_ACCESS_KEY)               rand_garage_key ;;
     MINIO_SECRET_KEY)               rand_hex 32 ;;
-    *) return 1 ;;
   esac
 }
 
@@ -86,8 +66,6 @@ while IFS= read -r line || [ -n "$line" ]; do
     key="${BASH_REMATCH[1]}"
     val="${BASH_REMATCH[2]}"
     if newval="$(generate_for "$key" 2>/dev/null)"; then
-      # CHANGE_?ME so a placeholder like CHANGEMEalnum42 (deliberately without an
-      # underscore, used where the value must stay alphanumeric) still matches.
       if [ "$FORCE" -eq 1 ] || [ -z "$val" ] || [[ "$val" == *CHANGE_ME* ]] || [[ "$val" == *CHANGEME* ]]; then
         printf '%s=%s\n' "$key" "$newval" >> "$TMP"
         printf '  %-32s <- %s chars\n' "$key" "${#newval}"

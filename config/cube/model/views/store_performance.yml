@@ -1,15 +1,3 @@
-# =============================================================================
-#  store_performance -- the operational view. Grain: rental.
-#
-#  Deliberately RENTAL grain, not payment: this view answers throughput and
-#  service questions (volume, duration, overdue, who handled it), and rental is
-#  where duration and open/returned state live. For store REVENUE use
-#  revenue_analytics grouped by store_label -- the money lives on the payment
-#  fact and putting it here would fan out.
-#
-#  There are only 2 stores in Pagila, so "by store" comparisons are a 2-bar
-#  chart. The useful axes here are staff, city and film category WITHIN a store.
-# =============================================================================
 views:
   - name: store_performance
     title: Store Performance
@@ -31,9 +19,6 @@ views:
           - rented_at
           - returned_at
           - is_returned
-          # Segments must be listed in the view explicitly -- a segment defined on
-          # a cube is NOT surfaced through a view otherwise, and filtering on it
-          # fails with "Invalid identifier '#overdue_rentals'".
           - overdue_rentals
           - returned_rentals
 

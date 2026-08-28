@@ -1,18 +1,3 @@
-# =============================================================================
-#  rental_analytics -- volume and duration. Grain: rental.
-#
-#  Separate from revenue_analytics because rental_date and payment_date are
-#  independent distributions in this data (see model/cubes/facts.yml). Keeping
-#  them apart holds every measure at its natural grain and avoids fanning out
-#  SUM(amount) across rentals.
-#
-#  Do NOT build a continuous line chart on rented_at: the source data has two
-#  consecutive months with zero rentals and it renders as a gap. Bar charts by
-#  category/rating/store are fine.
-#
-#  Policy placement is identical to revenue_analytics -- see the long comment
-#  there for why member_level/member_masking must live on the view.
-# =============================================================================
 views:
   - name: rental_analytics
     title: Rental Analytics
@@ -46,7 +31,6 @@ views:
           - phone
           - district
 
-      # See revenue_analytics for why prefix: true is used sparingly.
       - join_path: rentals.customers.addresses.cities
         includes:
           - city_name

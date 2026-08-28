@@ -1,329 +1,257 @@
 # On-Prem Agentic BI
 
-An enterprise-shaped, fully on-premise agentic BI stack in one `docker compose`
-project.
+A local Agentic BI demonstration built with Docker Compose. It combines a
+Pagila warehouse, Cube semantic layer, Superset dashboard, LDAP-backed
+Authentik SSO, LibreChat agents, and optional isolated Python execution.
 
-## Detailed architecture and data flow
+Azure AI Foundry is the only intended external dependency and egress path for
+model inference.
+
+## Identity and authorization
+
+OpenLDAP is the authoritative directory. Authentik synchronizes the LDAP users
+and `analysts` and `admins` groups. LibreChat authenticates through Authentik
+OIDC, while Superset continues to authenticate directly against LDAP.
+
+LibreChat's `cube` MCP connection obtains an OAuth access token for the signed-in
+user. `cube-mcp` verifies that token against Authentik's JWKS, requires the
+`cube.read` scope, maps exactly one LDAP group to a role, and mints a short-lived
+Cube JWT. Cube applies the matching view policy and masks PII before returning a
+result. Unknown or ambiguously grouped users are denied.
+
+Superset is deliberately different: its dashboard and built-in MCP service use
+one fixed Cube SQL identity. Superset users do not receive an individual Cube
+security context.
 
 ```mermaid
 flowchart TB
   user["People<br/>analyst@demo.local - admin@demo.local"]
-  azure["Azure AI Foundry<br/>LLM inference - only internet egress"]
+  azure["Azure AI Foundry<br/>model inference"]
 
-  subgraph identity["Identity"]
-    ldap["OpenLDAP<br/>one directory, users and groups"]
+  subgraph identity[Identity]
+    ldap["OpenLDAP<br/>authoritative users and groups"]
+    ak["Authentik<br/>LDAP source, OIDC, and OAuth"]
   end
 
-  subgraph chat["Chat and search - chat profile"]
-    lc["LibreChat<br/>chat UI - agents - MCP client"]
-    mongo[("MongoDB<br/>users - agents - conversations - files")]
-    meili[("Meilisearch<br/>private conversation full-text index")]
-    rag["RAG API<br/>searches user-attached documents"]
+  subgraph chat[Chat and search - chat profile]
+    lc["LibreChat<br/>chat UI, agents, MCP client"]
+    mongo[("MongoDB<br/>users, agents, conversations, files")]
+    meili[("Meilisearch<br/>private conversation index")]
+    rag["RAG API<br/>attached-document search"]
   end
 
-  subgraph mcp["Three MCP services"]
-    pgAnalyst["postgres-mcp - analyst<br/>Cube SQL identity: analyst@demo.local"]
-    pgAdmin["postgres-mcp - admin<br/>Cube SQL identity: admin@demo.local"]
-    ssMcp["Superset MCP<br/>chart metadata and chart rows<br/>service identity: mcp_reader"]
+  subgraph mcp[MCP services]
+    cubeMcp["cube-mcp<br/>OAuth-protected Cube gateway"]
+    ssMcp["Superset MCP<br/>read-only mcp_reader identity"]
   end
 
-  subgraph execution["Optional Python execution - sandbox profile"]
-    codeapi["codeapi<br/>execution gateway"]
-    sandbox["codeapi-sandbox<br/>Python under NsJail; no direct network"]
-    toolcall["codeapi-toolcall<br/>sandbox's only outbound route"]
-    files["codeapi-files<br/>returns intentional plots/files"]
-    redis[("Redis<br/>job queue")]
-    garage[("Garage<br/>S3-compatible output storage")]
+  subgraph execution[Optional Python execution - sandbox profile]
+    codeapi["CodeAPI"]
+    sandbox["codeapi-sandbox<br/>Python under NsJail"]
+    toolcall["codeapi-toolcall"]
+    files["codeapi-files"]
+    redis[(Redis)]
+    garage[(Garage)]
   end
 
-  subgraph bi["BI and semantic layer"]
-    superset["Apache Superset<br/>dashboard UI; one fixed Cube credential"]
-    cube["Cube<br/>semantic layer - role mapping - PII masking"]
+  subgraph bi[BI and semantic layer]
+    superset["Apache Superset<br/>shared Cube SQL identity"]
+    cube["Cube<br/>semantic layer, policies, PII masks"]
   end
 
-  subgraph data["One PostgreSQL instance with pgvector"]
+  subgraph data[PostgreSQL with pgvector]
     pagila[("pagila<br/>rental warehouse")]
     supersetDb[("superset<br/>dashboard metadata")]
     vectorDb[("vectordb<br/>RAG vectors")]
   end
 
-  user -->|LDAP login| lc
-  user -->|LDAP login| superset
-  lc -->|LDAP bind| ldap
-  superset -->|LDAP bind| ldap
+  ldap <-->|synchronize users and groups| ak
+  user -->|open chat| lc
+  lc -->|OIDC and OAuth redirects| ak
   lc -->|model requests| azure
   lc <--> mongo
-  lc -->|indexes messages and titles| meili
-  lc -->|user-attached documents| rag
+  lc -->|conversation index| meili
+  lc -->|attached documents| rag
   rag <--> vectorDb
-  lc -->|BI Analyst: masked role| pgAnalyst
-  lc -->|BI Analyst: admin role| pgAdmin
-  lc -->|Dashboard Reviewer| ssMcp
-  pgAnalyst -->|Postgres-wire SQL| cube
-  pgAdmin -->|Postgres-wire SQL| cube
-  ssMcp -->|read dashboards/charts| superset
-  superset -->|one fixed Cube SQL identity| cube
-  cube -->|read-only cube_ro| pagila
+  lc -->|bearer token| cubeMcp
+  cubeMcp -->|verify issuer and JWKS| ak
+  cubeMcp -->|short-lived Cube JWT| cube
+  lc -->|dashboard review| ssMcp
+  ssMcp -->|read dashboards and charts| superset
+  user -->|direct LDAP login| superset
+  superset -->|shared SQL identity| cube
+  cube -->|read-only| pagila
   superset <--> supersetDb
   lc -->|execute_code| codeapi
   codeapi <--> redis
   codeapi --> sandbox
-  sandbox -->|programmatic tool calls only| toolcall
-  toolcall -->|calls resume through LibreChat| lc
-  sandbox -->|intentional output files| files
+  sandbox -->|programmatic tool calls| toolcall
+  toolcall -->|resume calls| lc
+  sandbox -->|output files| files
   files <--> garage
 ```
 
-Everything except Azure AI Foundry stays on the private Compose network. There is
-one PostgreSQL server, not three: `pagila`, `superset`, and `vectordb` are separate
-databases inside the same `pgvector` instance.
+## Services
 
-### Service clusters and purpose
-
-| Cluster | Services | Purpose |
+| Area | Components | Purpose |
 |---|---|---|
-| Identity | OpenLDAP | One account and password per person for both LibreChat and Superset. It authenticates users; it does not decide Cube data access. |
-| Chat | LibreChat, MongoDB, Meilisearch | LibreChat runs chat and agents. MongoDB is its durable state. Meilisearch privately indexes conversation titles and messages. |
-| Document search | RAG API, `vectordb` | Searches only documents a user attaches in chat. Shared BI rules are in the agent system prompt, not RAG. |
-| BI | Superset, Cube, `pagila`, `superset` DB | Superset renders the dashboard. Cube is the sole semantic-layer and warehouse path. |
-| Agent execution | codeapi, sandbox, toolcall, Redis, Garage | Lets an agent calculate in Python and return a plot or file. The sandbox has no direct network access. |
+| Identity | OpenLDAP, Authentik | LDAP is the source of users and groups; Authentik provides LibreChat OIDC and Cube MCP OAuth. |
+| BI | PostgreSQL, Cube, Superset | Pagila data, governed semantic views, and the dashboard. |
+| Chat | LibreChat, MongoDB, Meilisearch, RAG API | Chat, per-user agents, conversation search, and attached-document search. |
+| Agent tools | `cube-mcp`, `superset-mcp` | Governed Cube queries and read-only dashboard inspection. |
+| Optional sandbox | CodeAPI, NsJail sandbox, Redis, Garage | Python calculations, plots, and file delivery. |
 
-### The three MCP services
+`cube-mcp` is the only service allowed to call Cube's REST API. Cube REST is not
+published on the host. The Cube PostgreSQL endpoint remains available for local
+operator checks and the shared Superset connection only.
 
-MCP is the controlled tool interface LibreChat agents call. The two PostgreSQL MCP
-containers have the same image and tools, but connect to Cube with different SQL
-identities. Cube maps that identity to a role before returning data.
+## Authentication and authorization flow
 
-| MCP service | Used by | What it can reach | Governance consequence |
-|---|---|---|---|
-| `postgres-mcp-analyst` | Analyst-owned **Pagila BI Analyst** | Cube SQL API as `analyst@demo.local` | Cube returns masked customer PII. |
-| `postgres-mcp-admin` | Admin-owned **Pagila BI Analyst** | Cube SQL API as `admin@demo.local` | Cube returns unmasked values for the demo admin role. |
-| `superset-mcp` | Both **Dashboard Reviewer** agents | Superset charts, dashboards, and chart rows as `mcp_reader` | Read-only existing-dashboard access. It has no per-user identity; Superset uses one fixed Cube credential. |
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant LDAP as OpenLDAP
+  participant AK as Authentik
+  participant LC as LibreChat
+  participant MCP as cube-mcp
+  participant C as Cube
 
-The first two demonstrate semantic-layer masking. They are intentionally **not** a
-production authorization design: the Cube role follows the agent's MCP container,
-not the human who is logged in. The reviewer MCP is identical for both users because
-Superset 6.1.0 does not pass a caller identity to its MCP service.
-
-### Data-flow examples
-
-**A governed BI question.** LibreChat selects the owner's Pagila BI Analyst, which
-uses the matching PostgreSQL MCP server. That MCP server sends SQL to Cube; Cube
-maps the fixed SQL identity to a role, masks before reading `pagila`, and returns
-only permitted rows. For calculations or charts, the agent calls `execute_code`.
-Python runs in the network-isolated sandbox and tool calls return through
-`codeapi-toolcall` and LibreChat.
-
-**A dashboard review.** The Dashboard Reviewer uses `superset-mcp` to list a
-dashboard, inspect its chart definition, and read chart rows. It cannot execute
-arbitrary SQL or modify Superset.
-
-**A document or chat search.** An attached document is embedded locally by the RAG
-API into `vectordb`. Separately, LibreChat indexes conversation titles and messages
-in Meilisearch. These are distinct systems: RAG is for user files; Meilisearch is
-for the user's chat history.
+  U->>LC: Open LibreChat
+  LC->>AK: Redirect to LibreChat OIDC authorization
+  AK->>LDAP: Synchronize directory users and groups
+  U->>AK: Authenticate with directory credentials
+  AK->>LC: OIDC callback and user session
+  LC->>AK: Authorize Cube MCP scope cube.read
+  AK->>LC: Access token with email and groups
+  LC->>MCP: MCP request with bearer token
+  MCP->>AK: Verify issuer and JWKS
+  MCP->>MCP: Validate scope and group mapping
+  MCP->>C: 60-second Cube JWT security context
+  C->>MCP: Governed semantic result
+  MCP->>LC: MCP result
+```
 
 ## Quick start
 
+1. Create local secrets and set the Azure Foundry values in `.env`.
+
+   ```bash
+   bash ./scripts/gen-secrets.sh --apply --force
+   ```
+
+   Set `AZURE_FOUNDRY_BASE_URL`, `AZURE_FOUNDRY_API_KEY`, and
+   `AZURE_FOUNDRY_MODEL`. Keep `.env` local and do not rotate stable secrets on a
+   running installation.
+
+2. Bootstrap the full demonstration.
+
+   ```bash
+   bash ./bootstrap.sh
+   ```
+
+   Bootstrap clones pinned upstream sources, applies the LibreChat OIDC patch,
+   builds images, starts profiles, initializes LDAP and storage, and runs checks.
+   The initial sandbox build can take 20-45 minutes.
+
+For a targeted startup:
+
 ```bash
-cp .env.example .env
-./bootstrap.sh
+docker compose up -d
+docker compose --profile chat up -d
+docker compose --profile sandbox up -d
 ```
 
-`bootstrap.sh` vendors the three upstream sources, verifies/fills any remaining
-placeholder secrets, builds the images, and brings the tiers up in order. Set
-`AZURE_FOUNDRY_API_KEY` in `.env` when it warns, then re-run - it is idempotent.
+The `chat` profile includes Authentik, LibreChat, both MCP services, RAG API,
+MongoDB, and Meilisearch. The `sandbox` profile is optional. Use `cubestore` only
+when testing Cube pre-aggregations.
 
-Or by hand:
+## Sign in and use the agents
 
-```bash
-docker compose up -d                        # postgres + cube + superset
-docker compose --profile sandbox up -d      # python execution
-docker compose --profile chat up -d         # MCP servers + rag-api + Meilisearch + LibreChat
-./scripts/init-ldap.sh                      # create/repair the LDAP tree
-./scripts/migrate-librechat-ldap.sh         # Before first LDAP login
-./scripts/provision-agent.sh                # 2 agents per user + embed business rules in prompts
-./scripts/verify.sh                         # full verification suite
-```
+Open LibreChat at `http://localhost:3080`. It redirects to Authentik; sign in
+with the LDAP account's full email address and password, such as the local demo
+analyst account configured in `.env`. A successful first OIDC login creates that
+person's managed agents automatically.
 
-The first run compiles CPython for the sandbox (20-45 min, once) and builds
-`rag_api` with torch for local embeddings.
-
-| Surface | URL | Credentials |
+| Agent | MCP server | What it does |
 |---|---|---|
-| Superset dashboard | http://localhost:8088/superset/dashboard/agentic-bi/ | `admin@demo.local` / `DEMO_ADMIN_PASSWORD` |
-| LibreChat | http://localhost:3080 | `analyst@demo.local` / `DEMO_ANALYST_PASSWORD` |
-| RAG API reference | http://localhost:8000/docs | Local-only FastAPI/Swagger reference for `file_search`; not a user dashboard |
-| Cube SQL API | `psql -h localhost -p 15432 -U analyst@demo.local -d cube` | `CUBEJS_SQL_PASSWORD` |
-| Cube REST | http://localhost:4000 | JWT signed with `CUBEJS_API_SECRET` |
-| OpenLDAP | *no published port* - internal only | `LDAP_ADMIN_DN` / `LDAP_ADMIN_PASSWORD` |
+| Agentic BI Analyst | `cube` | Discovers governed views and runs structured Cube semantic queries. It can calculate or chart results with the optional code tool. |
+| Dashboard Reviewer | `superset` | Reads existing Superset dashboards, charts, and chart data. It cannot write dashboards or execute arbitrary SQL. |
 
-**One credential per person, for both front doors.** Log in with the full e-mail
-address. There is deliberately no separate Superset password: `admin@demo.local`
-is one identity and one row in `ab_user`.
+The analyst always uses the logged-in user's OAuth identity. An analyst-group
+user receives masked PII; an admin-group user receives the admin policy. The
+agent does not accept a role, database credential, or user identity from the
+prompt.
 
-## What the demo shows
+## Operator endpoints
 
-Two users in **one userstore** - OpenLDAP - shared by Superset and LibreChat.
-`CUBE_USER_ROLE_MAP` in `.env` decides masking, keyed on that same e-mail and read
-by `config/cube/cube.js`.
+Host ports come from `.env`; the defaults are shown below.
 
-| Login | Cube group | `customers_email` | `customers_full_name` | `addresses_phone` |
-|---|---|---|---|---|
-| `analyst@demo.local` | `analyst` | `***@sakilacustomer.org` | `M. S.` | `***-***-123` |
-| `admin@demo.local` | `admin` | real | real | real |
-| anything else | `denied` | *view not even visible* | | |
-
-Fail-closed is a property of the design rather than a rule someone has to
-remember: `denied` is the default branch in `contextToGroups`, and it appears in
-**no** `access_policy` - Cube denies every group without a policy, so there is no
-deny rule to forget.
-
-### The two agents
-
-| Agent | Reaches | Job |
+| Surface | URL | Notes |
 |---|---|---|
-| **Pagila BI Analyst** | Cube's SQL API via `postgres-mcp` | Write SQL against the semantic layer, compute in Python, plot. Masking differs per owner. |
-| **Dashboard Reviewer** | Superset's own MCP service | Read the charts that already exist, reconcile them against the KPI tiles, and say what is misleading. Identical for both owners. |
+| LibreChat | `http://localhost:3080` | OIDC through Authentik. |
+| Authentik | `http://localhost:9000` | OIDC provider and LDAP synchronization. |
+| Superset | `http://localhost:8088/superset/dashboard/agentic-bi/` | Direct LDAP login; fixed Cube identity. |
+| Cube MCP | `http://localhost:8003/mcp` | OAuth-protected MCP endpoint. |
+| Superset MCP | `http://localhost:5008/mcp` | Internal agent integration; read-only `mcp_reader` service identity. |
+| RAG API | `http://localhost:8000/docs` | Local API reference, not a user UI. |
 
-Both retain `file_search` for documents attached by the user. Compact shared BI
-rules from `config/librechat/system-rules.md` are embedded in their system prompts
-during provisioning, so those rules are always available.
+OpenLDAP, MongoDB, Meilisearch, Cube REST, and the internal Cube MCP endpoint
+are not public host services.
 
-### Demo script
+## Governance model
 
-1. **Superset** - governed dashboard. The customer e-mail column is already
-   masked; nothing in Superset is doing that.
-2. **LibreChat as `analyst@demo.local`** - *"Plot monthly revenue by store for the
-   last 12 months."* The agent discovers the model, queries the semantic layer
-   from inside Python, and plots. Then ask for customer e-mails: masked.
-3. **Switch to the admin's agent** - same question, same agent definition, **real
-   e-mails**. No configuration changed; the semantic layer decided.
-4. **Dashboard Reviewer** - *"Read the revenue dashboard and reconcile the charts
-   against the KPI tiles."* It reads the real rows behind each chart and reports
-   what does not add up. This is how the category fan-out below was found.
-5. **Ask either agent a definition question** - *"What counts as an active
-   customer?"* It answers from its compact system rules, not the data.
-6. Optional: `psql -U nobody@nowhere.test` - denied, not escalated.
+Cube security is enforced by `config/cube/cube.js` and the view definitions in
+`config/cube/model/views/`.
 
-> **Say this out loud when demoing: LDAP unifies LOGIN, not authorization.** Both
-> apps authenticate against one directory - that part is real. But Superset holds
-> a single Cube credential, and an agent's Cube role comes from *which MCP
-> container it is wired to*. Signing in as a different LDAP user changes neither.
-> See [Security posture](#security-posture) below.
+- LDAP `analysts` maps to Cube `analyst` and LDAP `admins` maps to Cube `admin`.
+- A missing identity, missing group claim, or membership in both groups maps to
+  `denied`.
+- `CUBE_USER_ROLE_MAP` remains only for Cube SQL identities such as Superset;
+  it does not determine LibreChat MCP access.
+- PII masks live on cubes; access policies live on views.
+- Keep `CUBE_MODE=demo`. `dev` disables Cube member-level access control.
+- Query only semantic views and members returned by `get_schema`; raw SQL is not
+  available through `cube-mcp`.
 
-## Layout
+The Superset exception is intentional. Superset is useful for a shared governed
+dashboard, but it does not pass each dashboard user's identity into Cube.
 
-```
-docker-compose.yml    one stack; profiles: (default) | chat | sandbox | cubestore
-bootstrap.sh          first-run driver: vendor -> secrets -> build -> up -> verify
-config/               service config read by containers at runtime  (see its README)
-docker/               our three Dockerfiles                         (see its README)
-scripts/              host-side bash: init, provisioning, verify    (see its README)
-docs/                 architecture reference                       (see its README)
-vendor/               LibreChat, code-interpreter, rag_api - built from source, gitignored
-```
-
-Everything in `vendor/` is **built from source**, not pulled: the premise is that
-the code is editable. Two of the three needed a replacement Dockerfile to build at
-all - see [`docker/README.md`](docker/README.md).
-
-## Six operational pitfalls worth knowing up front
-
-Each one fails in a way that looks like something else, so the verification suite
-checks the actual outcome rather than relying on service health alone.
-
-| Trap | How it presents |
-|---|---|
-| `CUBEJS_DEV_MODE=true` disables member-level access control | Masking silently shows **real PII**. No error. `CUBE_MODE=demo` for anything you show anyone; `verify.sh V1` asserts it |
-| `public.film_category` is many-to-many (2367 rows / 1000 films) | Revenue by category over-reports by ~2.37x - `159539.15` against a true `67416.51`. **16 plausible bars, no error, no warning.** Cube and hand-written SQL produce the inflated number identically, because it is what the join says. `verify.sh V1b` reconciles the breakdown against the total |
-| Superset 6.1.0 reads a `RECAPTCHA_PUBLIC_KEY` it never defines | `GET /login/` returns 500 - **the login page will not render at all** - while `/health` stays 200, the container stays `healthy`, and the JSON login API keeps working. Every API-only check passes while no human can sign in |
-| Garage < v2.x: minio-js cannot parse `CompleteMultipartUpload` | Bytes land in the bucket, the client throws, and **every generated plot silently never reaches the user**. No error anywhere a user or healthcheck can see. Fixed by the v2.3.0 upgrade; `verify.sh V15` now asserts a real round trip |
-| `CODEAPI_AUTH_PROVIDER=librechat-jwt` without key material | Throws at **tool-execute time, not startup**, so every container stays healthy while the agent loses `execute_code` and - the Cube tools being `code_execution`-only - all data access |
-| `printf ... \| grep -q` under `set -o pipefail` returns 141 | `grep -q` closes the pipe on first match, so a check fails **precisely when its pattern matches early**, which reads as a real regression |
-
-## Security posture
-
-Be honest with stakeholders about all of this.
-
-- **The agent's Cube role is bound to the MCP container, not the signed-in
-  person.** Two `postgres-mcp` containers run the *same image with the same
-  flags*, differing only in the SQL username. That is what makes the masking
-  contrast honest - any difference in output is the semantic layer's doing. But it
-  also means whoever is handed the admin agent gets admin data. It is a
-  demonstration prop, not governance. Production must bind the role to the
-  authenticated identity; Cube already supports that via `securityContext`, and
-  the gap is entirely on the client side.
-- **Superset holds one Cube credential**, so every Superset user shares one
-  security context. `DASHBOARD_RBAC` is deliberately off rather than implying
-  per-user masking this path cannot deliver.
-- **Superset's MCP service has no per-user identity at all** in 6.1.0. Every call
-  runs as `mcp_reader`, so that account's role is the whole boundary - read-only
-  and deliberately without `can_execute_sql_query`. `verify.sh V21` asserts the
-  refusal from outside.
-- **NsJail shares the host kernel.** This Compose profile does not use the libkrun
-  microVM path. Upstream considers it appropriate for local development, *not*
-  for executing untrusted code.
-- **OpenLDAP is `osixia/openldap:1.5.0`** - OpenLDAP 2.4.57, an upstream-EOL
-  series. It is the de-facto standard image, but its newest stable tag is from
-  2021. Mitigation: **no port is published**. Do not carry it into production.
-- **LDAP runs without TLS** and **MongoDB runs `--noauth`**, both reachable only
-  on the compose network. Enable both beyond a PoC.
-- **`LOCAL_MODE=true` on codeapi** skips its JWT handshake, so code sessions
-  bucket under one principal. Authorisation is enforced in Cube, not here.
-- **Embeddings are computed locally** on CPU, so document text never leaves the
-  host - which is what lets the "only LLM inference leaves the host" claim survive
-  adding RAG.
-
-## Data notes
-
-Pagila, vendored from [devrimgunduz/pagila](https://github.com/devrimgunduz/pagila)
-at commit `5ba5a57aeb159f75f02aca2432d3c262186d13d3`. `30-date-shift.sql`
-relocates the all-2022 data into the trailing months so relative-date filters are
-not empty.
-
-Measured properties that shaped the design:
-
-- **`rental_date` and `payment_date` are independently generated**, needing
-  different shifts (1425 vs 1462 days). 51 % of rentals postdate the last payment,
-  and rentals have no rows at all in two consecutive months - so every revenue
-  trend is built on `payments.paid_at`. A line chart on `rented_at` renders a gap
-  that looks like a broken pipeline.
-- **The span is ~7.3 months and a shift cannot widen it.** A "stretch to 24
-  months" variant is rejected: it multiplies every rental duration by ~3.2x,
-  making the `avg_rental_duration_days` KPI a lie.
-- **`customer.create_date` is a single constant** for all 599 rows - no signup or
-  cohort chart is possible.
-- **No lat/long anywhere in Pagila**, only place names. No map chart.
-- **`film_category` is many-to-many** - the most dangerous property of this
-  dataset. The semantic layer collapses it to one primary category per film, so a
-  category figure means "revenue of films whose *primary* category is X", not
-  "revenue of films tagged X". Only the first is answerable through the model.
-
-Expected after seeding: 16 044 rentals, 16 049 payments, revenue **67 416.51** -
-and revenue-by-category must sum to exactly that.
-
-## Operations
+## Operations and validation
 
 ```bash
-# Iterate on the Cube data model with the Playground (masking OFF)
-CUBE_MODE=dev  docker compose up -d --force-recreate cube
-CUBE_MODE=demo docker compose up -d --force-recreate cube   # back to enforcing
+docker compose config -q
+docker compose ps
+bash ./scripts/verify.sh V1
+bash ./scripts/verify.sh
+```
 
-# Rebuild the dashboard after editing config/superset/build_dashboard.py
-docker compose exec superset python /app/build_dashboard.py
+Run `V1` after Cube model, role, mask, or access-policy changes. Run the full
+suite after cross-service changes when Azure credentials are configured. The
+checks validate actual authorization and MCP behavior, not only container health.
 
-# After restarting cube, restart the MCP servers too: they pool connections to it
-# and do not validate them on checkout, so the first reused socket fails.
-docker compose restart postgres-mcp-analyst postgres-mcp-admin
+To repair directory data, run `bash ./scripts/init-ldap.sh`. To repair or create
+agents for users who have already completed OIDC login, run
+`bash ./scripts/provision-agent.sh`. It is a recovery path; normal first login
+provisions agents automatically.
 
-# Full reset, including data
+For a reset of local state:
+
+```bash
 docker compose --profile chat --profile sandbox down -v
 ```
 
-`SUPERSET_SECRET_KEY` and `CUBEJS_API_SECRET` must stay **stable**: the first
-encrypts Superset's stored DB credentials (rotating it is not self-healing), the
-second signs Cube's REST API JWTs.
+This removes volumes and therefore deletes local data, identities, chats, and
+dashboard metadata.
 
-Deeper detail - every container, what it does, how to inspect it, and the
-rejected alternatives - is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+## Important limitations
+
+- Superset and Superset MCP use a shared Cube identity, not per-user Cube
+  authorization.
+- The local demonstration uses LDAP without TLS and MongoDB without authentication
+  on the private Compose network.
+- Code execution uses NsJail and shares the host kernel.
+- The seeded Pagila category relationship is many-to-many. The Cube model selects
+  one primary category per film so revenue-by-category remains additive.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for component flows and
+[docs/TRAPS.md](docs/TRAPS.md) for operational failure modes.

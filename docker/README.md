@@ -1,27 +1,36 @@
 # docker/
 
-Our Dockerfiles. **Build inputs only** - nothing here is read at runtime; runtime
-configuration lives in [`../config/`](../config/).
+Docker build inputs owned by this repository. Runtime settings live in
+[`../config/`](../config/) and `.env`.
 
-Three of the eighteen images are built rather than pulled, and each one exists
-because the upstream Dockerfile does not produce a working image here.
-
-| Image | Base / source | Why not the stock image |
+| Build | Source | Purpose |
 |---|---|---|
-| `superset/` | `apache/superset:6.1.0` | The lean build ships **zero database drivers** and no curl. Without `psycopg2` Superset cannot reach its own metadata DB, so it fails at boot with an unhelpful loop. Also adds `python-ldap` and `fastmcp`. |
-| `librechat/` | `vendor/LibreChat` | Upstream swallows a failed frontend build (`npm run frontend;` - note the semicolon). Our Dockerfile restores write permission before the build and fails if its artefacts are missing. |
-| `rag-api/` | `vendor/rag_api` | Upstream pins `opencv-python-headless` while a dependency requires `opencv-python`, sending pip into unbounded backtracking. It looks exactly like a hang: no error, a ~75 MB wheel re-downloaded per attempt. |
+| `cube-mcp/` | Local FastMCP application | Verifies Authentik OAuth tokens and proxies governed Cube semantic requests. |
+| `superset/` | `apache/superset:6.1.0` | Adds PostgreSQL, LDAP, FastMCP, and healthcheck dependencies. |
+| `librechat/` | `vendor/LibreChat` | Builds the pinned LibreChat source with the OIDC provisioning patch. |
+| `rag-api/` | `vendor/rag_api` | Resolves the upstream OpenCV dependency conflict for local embeddings. |
 
-`vendor/` is cloned by `bootstrap.sh` and is gitignored.
+`bootstrap.sh` clones the pinned `vendor/` sources and applies the LibreChat OIDC
+patch before Compose builds `librechat`. Do not edit generated vendor state as a
+configuration mechanism; keep repository changes in `docker/`, `config/`, or the
+patch file.
 
-## The one thing to be careful with
+## Cube MCP
 
-**`dockerfile:` paths in compose are relative to the build context, not the repo
-root.** `rag-api` and `librechat` build from `./vendor/<repo>`, so compose
-references them as `../../docker/<name>/Dockerfile`. Moving either `docker/` or
-`vendor/` to a different depth changes that `../../`, and it fails only at image
-build time - never at `docker compose config`.
+`cube-mcp/app.py` is a security boundary. It verifies the Authentik issuer, JWKS,
+and `cube.read` scope; derives the identity from verified claims; and creates a
+short-lived Cube JWT. It is the only chat-side service with `CUBEJS_API_SECRET`.
 
-`python-ldap` is a C extension with no wheel available here. `docker/superset/`
-installs its build toolchain, uses it, and purges it **in one layer**; keep that
-shape rather than leaving `gcc` in the image.
+Do not expose Cube REST, disable token verification, or add a user-selected role
+parameter. Test this boundary with `bash ./scripts/verify.sh V4`.
+
+## Build notes
+
+Compose Dockerfile paths are relative to each build context. LibreChat and RAG
+API build from `vendor/`, so their Compose Dockerfile paths point back into this
+directory. `docker compose config -q` validates rendering but does not prove a
+Dockerfile path exists at build time.
+
+The Superset image installs `python-ldap` with a temporary C build toolchain and
+removes that toolchain in the same image layer. Preserve that pattern when
+updating dependencies.

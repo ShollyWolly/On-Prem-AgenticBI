@@ -1,7 +1,3 @@
-# Customer master -- carries most of the PII in the demo. `mask:` lives here on
-# the cube; access_policy lives on the views instead (see revenue_analytics.yml).
-# public: false keeps this reachable only through the views, so the agent cannot
-# join cubes directly and hit the e-graph rewriter's node limit.
 cubes:
   - name: customers
     sql_table: public.customer
@@ -53,10 +49,6 @@ cubes:
         sql: email
         type: string
         description: "E-mail address. PII."
-        # Keeps the domain so 'are these the same organisation' reasoning still
-        # works, while the local part is gone. Recognisably masked rather than
-        # silently blanked -- an analyst can tell the difference between
-        # "redacted" and "missing".
         mask:
           sql: "'***@' || SPLIT_PART({CUBE}.email, '@', 2)"
 

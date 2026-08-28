@@ -1,18 +1,5 @@
-# Physical dataset on the Cube view of the same name.
-#
-# PHYSICAL, not virtual (sql: null). A virtual dataset would trigger
-# transpile_virtual_dataset_sql on import via source_db_engine, which is a
-# needless transformation of SQL that Cube's dialect is fussy about anyway.
-#
-# Columns are declared EXPLICITLY rather than introspected. This is deliberate:
-# never rely on type detection through Cube's pg-wire protocol. is_dttm on the
-# time column is the load-bearing flag -- without it Superset offers no Time
-# Grain and every time-series chart silently degrades.
 table_name: revenue_analytics
 
-# Cube exposes cubes and views as tables in `public`. Set it explicitly: a null
-# schema is rewritten to get_example_default_schema() by ImportExamplesCommand,
-# which would point at an examples database that does not exist here.
 schema: public
 sql: null
 
@@ -34,7 +21,6 @@ columns:
     filterable: true
     verbose_name: Payment Date
 
-  # --- customer attributes (PII, masked by Cube for the analyst role) ---------
   - column_name: customers_customer_id
     type: BIGINT
     is_dttm: false
@@ -62,7 +48,6 @@ columns:
     filterable: true
     verbose_name: Active Customer
 
-  # --- geography (place names only -- Pagila has NO lat/long, so no maps) -----
   - column_name: addresses_phone
     type: STRING
     is_dttm: false
@@ -95,7 +80,6 @@ columns:
     filterable: true
     verbose_name: Country
 
-  # --- org -------------------------------------------------------------------
   - column_name: store_label
     type: STRING
     is_dttm: false
@@ -117,7 +101,6 @@ columns:
     verbose_name: Staff E-mail
     description: PII. Masked by Cube access_policy for non-admin roles.
 
-  # --- catalogue -------------------------------------------------------------
   - column_name: title
     type: STRING
     is_dttm: false
@@ -144,11 +127,6 @@ columns:
     verbose_name: Category
 
 metrics:
-  # MEASURE() rather than SUM()/AVG(). MEASURE() is valid for EVERY Cube measure
-  # type, so the same form is correct for sum, avg and count_distinct alike, and
-  # it cannot double-aggregate an already-aggregated Cube measure. Matched
-  # aggregates do work (SUM on a `sum` measure), but MEASURE() removes the
-  # "Measure aggregation type doesn't match" footgun entirely.
   - metric_name: total_revenue
     expression: MEASURE(total_revenue)
     verbose_name: Revenue

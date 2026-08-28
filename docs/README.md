@@ -2,7 +2,8 @@
 
 | File | What it is | Read it when |
 |---|---|---|
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Full system report: every container, what it does, how to inspect it, and the decisions behind each one - with the alternatives that were rejected and why | You want to understand or evaluate the design |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Current service topology, identity flow, authorization boundaries, state, and validation | You want to understand or evaluate the design |
+| [`TRAPS.md`](TRAPS.md) | Failure modes that look healthy or plausible and the checks that expose them | You are changing or diagnosing the stack |
 
-The root [`README.md`](../README.md) is the short version: what this is, how to
-run it, and the demo script.
+The root [`README.md`](../README.md) is the operator introduction: setup, login,
+governance, endpoints, and common operations.

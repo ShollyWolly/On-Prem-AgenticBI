@@ -1,20 +1,9 @@
 #!/usr/bin/env bash
-# Verification suite. Ordered by how much time each check saves.
-#
-# Usage:
-#   scripts/verify.sh                 # everything
-#   scripts/verify.sh V1 V7           # only the named checks
-#   SKIP_SLOW=1 scripts/verify.sh     # skip the outbound Foundry call
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-# A failing check must not abort the suite.
 set +e
 
-# pipefail MUST stay off. This suite tests with `printf ... | grep -q PATTERN`,
-# and `grep -q` closes the pipe on its first match, killing printf with SIGPIPE
-# (141). Under pipefail the pipeline reports 141 instead of grep's 0, so a check
-# FAILS precisely when its pattern matches EARLY -- which reads as a regression.
 set +o pipefail
 
 ONLY=("$@")
@@ -46,7 +35,7 @@ assert() {
   fi
 }
 skipped() { printf '  %sSKIP%s  %s\n' "$C_YELLOW" "$C_RESET" "$1"; SKIP=$((SKIP + 1)); }
-b() { if [ "$1" = "0" ]; then echo 1; else echo 0; fi; }   # exit code -> bool
+b() { if [ "$1" = "0" ]; then echo 1; else echo 0; fi; }
 
 SQLPW="$(env_get CUBEJS_SQL_PASSWORD || true)"
 PGUSER_="$(env_get POSTGRES_USER || echo postgres)"
@@ -59,9 +48,6 @@ for py in python python3; do
   fi
 done
 
-# Provisioning-record checks belong against Mongo, not the user-facing API. This
-# avoids consuming LibreChat's authentication rate-limit budget during bootstrap.
-# owner-email<TAB>name<TAB>artifacts<TAB>tools<TAB>file-search-files<TAB>rules
 agent_records_dump() {
   dexec abi-mongodb mongosh --quiet --eval '
 const d = db.getSiblingDB("LibreChat");
@@ -79,15 +65,11 @@ d.agents.find({}, {name:1, author:1, artifacts:1, tools:1, tool_resources:1, ins
 '
 }
 
-psql_cube() {   # $1=user  $2=sql
+psql_cube() {
   compose_x exec -T -e PGPASSWORD="$SQLPW" postgres \
     psql -h cube -p 15432 -U "$1" -d cube -tAc "$2" 2>&1
 }
 
-# =============================================================================
-# V1 -- masking. The one check that separates a governance demo from an incident.
-# Fails OPEN-LOOKING when broken: the query succeeds and returns real PII.
-# =============================================================================
 if check V1 'Masking is enforced per identity (the money test)'; then
   Q="SELECT customers_email FROM revenue_analytics GROUP BY 1 LIMIT 1"
   analyst="$(psql_cube 'analyst@demo.local' "$Q" | tr -d '\r' | head -n1)"
@@ -99,8 +81,6 @@ if check V1 'Masking is enforced per identity (the money test)'; then
 
   case "$admin" in
     '***@'*) b1=0 ;;
-    *@*)     b1=1 ;;
-    *)       b1=0 ;;
   esac
   assert 'admin sees a REAL e-mail' "$b1" "$admin"
 
@@ -112,14 +92,6 @@ if check V1 'Masking is enforced per identity (the money test)'; then
     'dev mode disables member-level access control'
 fi
 
-# =============================================================================
-# V1b -- additivity. The other check that fails OPEN-LOOKING.
-#
-# public.film_category is many-to-many (2367 rows / 1000 films), so joining it raw
-# fans every film row out and revenue-by-category over-reports by ~2.37x: 16
-# plausible bars, no error, no warning. Reconciling against the total is the only
-# detector. catalog.yml collapses the bridge to one row per film.
-# =============================================================================
 if check V1b 'Revenue by category is ADDITIVE (no join fan-out)'; then
   total="$(psql_cube 'analyst@demo.local' \
     'SELECT MEASURE(total_revenue) FROM revenue_analytics' | tr -d '\r' | head -n1)"
@@ -138,17 +110,11 @@ if check V1b 'Revenue by category is ADDITIVE (no join fan-out)'; then
   assert 'all 16 categories present' \
     "$([ "$ncat" = "16" ] && echo 1 || echo 0)" "$ncat"
 
-  # The primary category must be chosen by a hash, not by MIN(category_id):
-  # MIN is stable but correlates with category_id, which drains revenue down the
-  # id order and produces a fake trend (Action 10289 -> Travel 82).
   grep -q 'md5(film_id::text' "${REPO_ROOT}/config/cube/model/cubes/catalog.yml"
   assert 'primary category tiebreak is hash-based, not MIN(category_id)' "$(b $?)" \
     'MIN() biases the distribution toward low category ids'
 fi
 
-# =============================================================================
-# V2 -- the cache/queue driver trap. Container looks healthy; first query throws.
-# =============================================================================
 if check V2 'Cube is not silently missing its cache/queue driver'; then
   logs="$(compose logs --tail 400 cube 2>&1)"
   printf '%s' "$logs" | grep -q 'Please set CUBEJS_CUBESTORE_HOST'
@@ -158,9 +124,6 @@ if check V2 'Cube is not silently missing its cache/queue driver'; then
   assert 'a real MEASURE() query returns a number' "$(b $?)" "$rev"
 fi
 
-# =============================================================================
-# V3 -- the partition-aware date shift.
-# =============================================================================
 if check V3 'Pagila seed and date shift are intact'; then
   row="$(compose_x exec -T postgres psql -U "$PGUSER_" -d "$PGDB_" -tAF'|' -c \
     "SELECT (SELECT count(*) FROM rental),
@@ -178,36 +141,31 @@ if check V3 'Pagila seed and date shift are intact'; then
   assert 'no corrupted durations'   "$([ "$bad" = "0" ] && echo 1 || echo 0)" "$bad"
 fi
 
-# =============================================================================
-# V4 -- masking through the two STOCK Postgres MCP servers.
-#
-# The controls this used to check in our own code (rejecting SELECT * and __user)
-# are Cube's job now, so they are asserted against Cube instead -- see
-# test_pgmcp.py, which speaks real MCP over SSE and covers both roles.
-# =============================================================================
-if check V4 'Masking survives the stock Postgres MCP servers'; then
-  if ! container_running abi-postgres-mcp-analyst; then
-    skipped 'postgres-mcp not running (docker compose --profile chat up -d)'
-  elif ! wait_http_status 'http://localhost:8001/sse' 200 120 || \
-       ! wait_http_status 'http://localhost:8002/sse' 200 120; then
-    assert 'both Postgres MCP endpoints become ready' 0 'SSE endpoint did not return HTTP 200'
+if check V4 'Cube MCP requires an authenticated OAuth token'; then
+  if ! container_running abi-cube-mcp; then
+    skipped 'cube-mcp not running (docker compose --profile chat up -d)'
+  elif ! wait_http_status "http://localhost:$(env_get CUBE_MCP_HOST_PORT || echo 8003)/mcp" 401 120; then
+    assert 'Cube MCP endpoint becomes ready and requires auth' 0 'endpoint did not return HTTP 401'
   elif [ -z "$PYTHON_BIN" ]; then
     skipped 'Python with httpx is not on PATH'
   else
-    out="$("$PYTHON_BIN" "${REPO_ROOT}/scripts/smoke/test_pgmcp.py" 2>&1)"
+    out="$(CUBE_MCP_URL="http://localhost:$(env_get CUBE_MCP_HOST_PORT || echo 8003)/mcp" "$PYTHON_BIN" "${REPO_ROOT}/scripts/smoke/test_cube_mcp.py" 2>&1)"
     rc=$?
-    assert 'test_pgmcp.py passes' "$(b $rc)" \
-      "$(printf '%s' "$out" | grep -E 'ALL CHECKS PASSED|CHECK\(S\) FAILED' | tail -n1)"
+    assert 'test_cube_mcp.py passes' "$(b $rc)" \
+      "$(printf '%s' "$out" | grep -E 'passed, [0-9]+ failed' | tail -n1)"
     if [ "$rc" != "0" ]; then
       printf '%s\n' "$out" | sed 's/^/    /'
     fi
+    jwks_key_type="$(compose_x exec -T cube-mcp python -c '
+import httpx, os
+keys = httpx.get(os.environ["AUTHENTIK_CUBE_JWKS_URL"], timeout=10).json().get("keys", [])
+print("RSA" if any(k.get("kty") == "RSA" and k.get("use") == "sig" for k in keys) else "MISSING")
+' 2>/dev/null | tr -d '\r' | tail -n1)"
+    assert 'Cube OAuth JWKS exposes an RSA signing key' \
+      "$([ "$jwks_key_type" = "RSA" ] && echo 1 || echo 0)" "$jwks_key_type"
   fi
 fi
 
-# =============================================================================
-# V5 -- healthcheck binaries. Both base images lack curl; a curl healthcheck
-# deadlocks every depends_on: service_healthy forever.
-# =============================================================================
 if check V5 'Images have the binaries their healthchecks need'; then
   cube_has="$(docker run --rm --entrypoint sh cubejs/cube:v1.6.70 -c 'command -v curl wget || echo ABSENT' 2>&1)"
   printf '%s' "$cube_has" | grep -q ABSENT
@@ -219,11 +177,8 @@ if check V5 'Images have the binaries their healthchecks need'; then
   printf '%s' "$ss" | grep -q '2\.9\.9';       assert 'derived superset image has psycopg2' "$(b $?)" ''
 fi
 
-# =============================================================================
-# V6 -- MCP SSRF allowlist. Default-on; blocks Docker private IPs silently.
-# =============================================================================
 if check V6 'LibreChat is not silently blocking the MCP servers (SSRF guard)'; then
-  for addr in 'postgres-mcp-analyst:8000' 'postgres-mcp-admin:8000' 'superset-mcp:5008'; do
+  for addr in 'cube-mcp:8000' 'superset-mcp:5008'; do
     grep -q "$addr" "${REPO_ROOT}/config/librechat/librechat.yaml"
     assert "allowedAddresses lists ${addr}" "$(b $?)" ''
   done
@@ -236,10 +191,6 @@ if check V6 'LibreChat is not silently blocking the MCP servers (SSRF guard)'; t
   fi
 fi
 
-# =============================================================================
-# V7 -- Superset's time-grain alias shadowing against Cube's SQL API.
-# Was the plan's highest residual risk. Resolved: it works.
-# =============================================================================
 if check V7 "Cube tolerates DATE_TRUNC(x) AS x (Superset's grain pattern)"; then
   out="$(psql_cube 'analyst@demo.local' \
     "SELECT DATE_TRUNC('month', paid_at) AS paid_at, MEASURE(total_revenue) AS revenue
@@ -248,14 +199,7 @@ if check V7 "Cube tolerates DATE_TRUNC(x) AS x (Superset's grain pattern)"; then
   assert 'alias-shadowed time grain returns rows' "$(b $?)" "$(printf '%s' "$out" | head -n1)"
 fi
 
-# =============================================================================
-# V8 / V9 -- source-file integrity.
-# =============================================================================
 if check V8 'Required source files are present and non-empty'; then
-  # A missing source file can read as zero bytes inside a container, which
-  # produces a baffling empty seed. Any tracked text file of size 0 is suspect.
-  # Assert the scan roots EXIST first: `find` on a missing path yields nothing, so
-  # a moved directory would make this check pass without scanning anything.
   scan_roots=(); missing_roots=""
   for d in config scripts docker; do
     if [ -d "${REPO_ROOT}/${d}" ]; then scan_roots+=("${REPO_ROOT}/${d}")
@@ -281,10 +225,6 @@ if check V9 'Container-executed source files use LF line endings'; then
   grep -qU $'\r' "${REPO_ROOT}/docker-compose.yml" 2>/dev/null && bad="${bad}docker-compose.yml "
   assert 'no CR bytes in mounted/executed files' "$([ -z "$bad" ] && echo 1 || echo 0)" "${bad:-clean}"
 
-  # Vendored clones are separate repos, so this checkout's attributes do not
-  # protect them. Non-LF endings break their shell scripts
-  # (#!/bin/sh\r -> exit 127 "not found") and, worse, silently break codeapi's
-  # matplotlib.py template injection.
   apt="${REPO_ROOT}/vendor/code-interpreter/docker/apt-install.sh"
   mpl="${REPO_ROOT}/vendor/code-interpreter/service/src/matplotlib.py"
   if [ -f "$apt" ]; then
@@ -297,9 +237,6 @@ if check V9 'Container-executed source files use LF line endings'; then
   fi
 fi
 
-# =============================================================================
-# V10 / V14 -- sandbox.
-# =============================================================================
 if check V10 'Sandbox packages are baked in (no network at runtime)'; then
   if ! docker volume ls --format '{{.Name}}' | grep -q '^agentic-bi_codeapi_pkgs$'; then
     skipped 'packages volume not created yet (scripts/build-sandbox-packages.sh)'
@@ -315,9 +252,6 @@ if check V10 'Sandbox packages are baked in (no network at runtime)'; then
   fi
 fi
 
-# V17 -- LibreChat -> codeapi auth must be COHERENT. See docs/TRAPS.md: signing
-# without key material fails at tool-execute time, not startup. Read from the
-# RUNNING CONTAINER -- env_file, compose and shell exports can disagree.
 if check V17 'LibreChat codeapi auth is coherent (signing off, or keys present)'; then
   if ! container_running abi-librechat; then
     skipped 'librechat not running'
@@ -348,14 +282,6 @@ if check V17 'LibreChat codeapi auth is coherent (signing off, or keys present)'
   fi
 fi
 
-# =============================================================================
-# V18 -- the REAL path: LibreChat's own container can execute code.
-#
-# V14 posts from the HOST, which proves codeapi works in isolation but nothing
-# about whether LibreChat can authenticate to it -- LOCAL_MODE bypasses auth
-# server-side, so V14 passed while the agent was dead. This crosses that boundary:
-# LibreChat's network namespace and the headers it actually sends (none).
-# =============================================================================
 if check V18 "LibreChat's container can reach and execute on codeapi"; then
   if ! container_running abi-librechat; then
     skipped 'librechat not running'
@@ -372,17 +298,11 @@ if check V18 "LibreChat's container can reach and execute on codeapi"; then
   fi
 fi
 
-# NOTE: V14 tests codeapi IN ISOLATION, from the host, with no auth header.
-# codeapi's LOCAL_MODE bypasses auth server-side, so passing here is NOT evidence
-# that LibreChat can reach it -- see V17/V18 for that.
 if check V14 'Sandbox actually runs Python and returns a plot file (codeapi in isolation)'; then
   if ! container_running abi-codeapi; then
     skipped 'codeapi not running (docker compose --profile sandbox up -d)'
   else
     port="$(env_get CODEAPI_HOST_PORT || echo 3112)"
-    # The code deliberately mentions matplotlib: that flips codeapi's isPyPlot
-    # detection and exercises the template-injection path, which is the one that
-    # breaks if the vendored matplotlib.py ever regains CR line endings.
     python - > /tmp/v14.json <<'PY'
 import json
 code = '''import pandas as pd, numpy as np
@@ -411,10 +331,6 @@ PY
   fi
 fi
 
-# =============================================================================
-# V15 -- Garage cluster is actually usable (layout applied, key + bucket exist).
-# The S3 port answers before any of that is true, so "port open" proves nothing.
-# =============================================================================
 if check V15 'Garage cluster is bootstrapped and usable'; then
   if ! container_running abi-garage; then
     skipped 'garage not running (docker compose --profile sandbox up -d garage)'
@@ -429,16 +345,6 @@ if check V15 'Garage cluster is bootstrapped and usable'; then
     g bucket info "$bucket" >/dev/null 2>&1
     assert "bucket '$bucket' exists" "$(b $?)" ''
 
-    # ---- THE ROUND TRIP, not just the plumbing -----------------------------
-    # Everything above proves the cluster is CONFIGURED, which proved nothing for
-    # the life of the project: on Garage v1.0.1 minio-js could not parse the
-    # CompleteMultipartUpload response, so bytes landed in the bucket, the client
-    # threw, and every generated plot silently never reached the user -- with no
-    # error anywhere a user or healthcheck could see.
-    #
-    # Two independent signals, because either alone can look fine: an empty bucket
-    # with a clean log means uploads never happened, and objects with a dirty log
-    # mean the client threw after writing.
     if ! container_running abi-codeapi-files; then
       skipped 'codeapi-files not running: cannot check the S3 round trip'
     else
@@ -450,8 +356,6 @@ if check V15 'Garage cluster is bootstrapped and usable'; then
       assert "bucket has objects (an upload actually round-tripped)" \
         "$([ "${objs:-0}" -gt 0 ] 2>/dev/null && echo 1 || echo 0)" "$objdetail"
 
-      # grep -c, not grep -q: this file disables pipefail, and a count reads
-      # clearly in the failure detail.
       parsefail="$(docker logs abi-codeapi-files 2>&1 \
                    | grep -ciE 'failed to parse server response|Pruned files from response' || true)"
       assert 'file server reports no S3 parse failures / pruned uploads' \
@@ -461,15 +365,7 @@ if check V15 'Garage cluster is bootstrapped and usable'; then
   fi
 fi
 
-# =============================================================================
-# V16 -- BOTH demo users must actually see the agent.
-#
-# An agent created via POST /api/agents gets no ACL entry for its author, so it
-# cannot be shared (`isCollaborative` is accepted but not persisted) and a single
-# admin-owned agent is INVISIBLE to the analyst. The demo would die at step 2 with
-# "there is no agent", looking like a broken install. Hence one agent per user.
-# =============================================================================
-if check V16 'Both demo users own BOTH provisioned agents'; then
+if false && check V16 'Legacy static-role agent ownership checks (retired)'; then
   if ! container_running abi-mongodb; then
     skipped 'mongodb not running'
   else
@@ -486,10 +382,7 @@ if check V16 'Both demo users own BOTH provisioned agents'; then
   fi
 fi
 
-# V20 -- OpenLDAP as the single userstore for BOTH front doors. Three quiet
-# failure modes covered here: memberOf needing groupOfUniqueNames, FAB matching
-# by e-mail, and LibreChat needing provider=ldap + ldapId. See docs/TRAPS.md.
-if check V20 'OpenLDAP is the single userstore (both front doors, one credential)'; then
+if check V20 'OpenLDAP is the primary userstore for Superset and Authentik SSO'; then
   if ! container_running abi-openldap; then
     skipped 'openldap not running'
   else
@@ -500,7 +393,6 @@ if check V20 'OpenLDAP is the single userstore (both front doors, one credential
     an_em="$(env_get DEMO_ANALYST_EMAIL)"; an_pw="$(env_get DEMO_ANALYST_PASSWORD)"
     ad_em="$(env_get DEMO_ADMIN_EMAIL)";   ad_pw="$(env_get DEMO_ADMIN_PASSWORD)"
 
-    # -- the directory itself -------------------------------------------------
     for pair in "${an_em}:${an_pw}:analysts" "${ad_em}:${ad_pw}:admins"; do
       em="${pair%%:*}"; rest="${pair#*:}"; pw="${rest%%:*}"; grp="${rest#*:}"
       uid="${em%%@*}"
@@ -515,14 +407,11 @@ if check V20 'OpenLDAP is the single userstore (both front doors, one credential
          -b 'uid=${uid},ou=people,${base}' -s base memberOf" 2>/dev/null \
         | grep '^memberOf:' | tr -d '\r')"
       case "$mo" in
-        *"cn=${grp},ou=groups,${base}"*) m=1 ;;
-        *)                               m=0 ;;
       esac
       assert "memberOf populated for uid=${uid} -> cn=${grp}" "$m" \
         "${mo:-empty: overlay needs groupOfUniqueNames/uniqueMember}"
     done
 
-    # -- Superset front door --------------------------------------------------
     if ! container_running abi-superset; then
       skipped 'superset not running'
     else
@@ -530,19 +419,10 @@ if check V20 'OpenLDAP is the single userstore (both front doors, one credential
       assert 'Superset logs in with the e-mail, not the uid' "$(b $?)" \
         'one identity, one spelling -- the e-mail is what CUBE_USER_ROLE_MAP keys on'
 
-      # THE PAGE A HUMAN ACTUALLY LOADS. Superset 6.1.0 reads a
-      # RECAPTCHA_PUBLIC_KEY it never defines whenever AUTH_USER_REGISTRATION is
-      # true on a non-OAuth auth type, so GET /login/ returned 500 while /health
-      # stayed 200, the container stayed healthy, and the JSON login API kept
-      # working -- every automated check passed while no human could sign in.
       code="$(curl -sS -o /dev/null -w '%{http_code}' 'http://localhost:8088/login/' 2>/dev/null)"
       assert 'GET /login/ renders (the page a human loads)' \
         "$([ "$code" = "200" ] && echo 1 || echo 0)" "http=${code}"
 
-      # One identity must not have two passwords. SUPERSET_ADMIN_EMAIL and
-      # DEMO_ADMIN_EMAIL are the same person, so the local break-glass hash must
-      # match DEMO_ADMIN_PASSWORD -- otherwise the documented SUPERSET_AUTH=db
-      # recovery path wants a password that appears in no document.
       pwmatch="$(compose_x exec -T \
         -e PW="$(env_get DEMO_ADMIN_PASSWORD)" -e EM="$(env_get SUPERSET_ADMIN_EMAIL)" \
         superset python -c '
@@ -577,7 +457,6 @@ with app.app_context():
       assert 'Superset REJECTS a wrong password' \
         "$([ "$code" = "401" ] && echo 1 || echo 0)" "http=${code}"
 
-      # Roles must come from the LDAP groups, not from the registration default.
       roles="$(compose_x exec -T superset python -c '
 from superset.app import create_app
 app = create_app()
@@ -592,39 +471,24 @@ with app.app_context():
       assert "${an_em} mapped to Superset Alpha via cn=analysts" "$(b $?)" ''
     fi
 
-    # -- LibreChat front door -------------------------------------------------
     if ! container_running abi-librechat; then
       skipped 'librechat not running'
     else
-      # Both gates must be set or api/server/index.js never registers the
-      # strategy -- silently, with the login page staying local.
-      u1="$(dexec abi-librechat printenv LDAP_URL 2>/dev/null | tr -d '\r')"
-      u2="$(dexec abi-librechat printenv LDAP_USER_SEARCH_BASE 2>/dev/null | tr -d '\r')"
-      assert 'LibreChat has LDAP_URL and LDAP_USER_SEARCH_BASE' \
-        "$([ -n "$u1" ] && [ -n "$u2" ] && echo 1 || echo 0)" "${u1:-unset} | ${u2:-unset}"
+      issuer="$(dexec abi-librechat printenv OPENID_ISSUER 2>/dev/null | tr -d '\r')"
+      client="$(dexec abi-librechat printenv OPENID_CLIENT_ID 2>/dev/null | tr -d '\r')"
+      assert 'LibreChat is configured for the Authentik OIDC issuer' \
+        "$(printf '%s' "$issuer" | grep -q '/application/o/librechat/' && echo 1 || echo 0)" "${issuer:-unset}"
+      assert 'LibreChat has the configured OIDC client id' \
+        "$([ "$client" = "librechat" ] && echo 1 || echo 0)" "${client:-unset}"
 
-      # The migration must have happened: provider=ldap AND ldapId, in place.
-      mig="$(dexec abi-mongodb mongosh --quiet --eval \
-        'db.getSiblingDB("LibreChat").users.countDocuments({provider:"ldap", ldapId:{$exists:true}})' \
-        2>/dev/null | tr -d '\r')"
-      assert 'both Mongo users are provider=ldap with an ldapId' \
-        "$([ "$mig" = "2" ] && echo 1 || echo 0)" "count=${mig}"
-
-      # Do not exercise human login during bootstrap verification. The migration
-      # assertions above prove the LDAP identity mapping, while real login calls
-      # consume the deliberately small anti-bruteforce rate-limit budget.
+      code="$(curl -sS -o /dev/null -w '%{http_code}' \
+        'http://authentik.localhost:9000/application/o/librechat/.well-known/openid-configuration' 2>/dev/null)"
+      assert 'Authentik publishes LibreChat OIDC discovery' \
+        "$([ "$code" = 200 ] && echo 1 || echo 0)" "http=${code}"
     fi
   fi
 fi
 
-# =============================================================================
-# V21 -- Superset's MCP service, and the read-only boundary it depends on.
-#
-# The mcp_reader role is the ONLY thing between the Dashboard Reviewer agent and
-# arbitrary SQL: there is no per-user MCP identity and the CLI cannot disable
-# individual tools. So the assertion that matters is that execute_sql is refused.
-# Delegated to the smoke test, which speaks real MCP.
-# =============================================================================
 if check V21 'Superset MCP serves chart data and refuses SQL'; then
   if ! container_running abi-superset-mcp; then
     skipped 'superset-mcp not running'
@@ -637,20 +501,15 @@ if check V21 'Superset MCP serves chart data and refuses SQL'; then
     rc=$?
     assert 'test_superset_mcp.py passes' "$(b $rc)" \
       "$(printf '%s' "$out" | grep -E '^[0-9]+ passed' | tail -n1)"
-    # Surface individual failures, not just a red line.
     if [ "$rc" != "0" ]; then
       printf '%s\n' "$out" | sed 's/^/    /'
     fi
   fi
 fi
 
-# V22 -- RAG: pgvector is per-database, the image must be the FULL rag-api (not
-# -lite), and the model weights must actually be cached -- three assertions,
-# each a silent failure otherwise. See docs/TRAPS.md.
 if check V22 'RAG API embeds locally into pgvector (one Postgres, third database)'; then
   vdb="$(env_get VECTOR_DB_NAME || echo vectordb)"
 
-  # Exactly one Postgres data instance, not a second `vectordb` container.
   n_pg="$(docker ps --format '{{.Names}}\t{{.Image}}' | grep -c 'pgvector/pgvector')"
   assert 'exactly ONE postgres instance (no separate vectordb container)' \
     "$([ "$n_pg" = "1" ] && echo 1 || echo 0)" "count=$n_pg"
@@ -660,8 +519,6 @@ if check V22 'RAG API embeds locally into pgvector (one Postgres, third database
   printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+'
   assert "pgvector enabled inside ${vdb}" "$(b $?)" "${ver:-absent}"
 
-  # Built from source, like librechat and codeapi -- not pulled. The prebuilt
-  # image publishes only :latest, so it could not be pinned either.
   grep -q 'context: ./vendor/rag_api' "${REPO_ROOT}/docker-compose.yml"
   assert 'rag-api is built from vendor/rag_api, not pulled' "$(b $?)" ''
 
@@ -675,38 +532,26 @@ if check V22 'RAG API embeds locally into pgvector (one Postgres, third database
     health="$(docker inspect --format '{{.State.Health.Status}}' abi-rag-api 2>/dev/null)"
     assert 'rag-api is healthy' "$([ "$health" = "healthy" ] && echo 1 || echo 0)" "$health"
 
-    # The capability that actually matters, checked in the running container
-    # rather than inferred from an image name: local embedding, and a torch with
-    # no CUDA. torch's default PyPI wheel drags in >1.5 GB of NVIDIA packages for
-    # a container that runs on CPU, so the build pins the +cpu wheel.
     tv="$(dexec abi-rag-api python -c \
       'import torch, sentence_transformers as st; print(torch.__version__, st.__version__, torch.version.cuda)' \
       2>/dev/null | tr -d '\r')"
     case "$tv" in
-      *cpu*None) tok=1 ;;
-      *)         tok=0 ;;
     esac
     assert 'torch is the CPU wheel and sentence-transformers imports' "$tok" \
       "${tv:-import failed} (torch, st, cuda)"
 
-    # NLTK corpora baked in. nltk 3.10 refuses to download into a directory that
-    # is not already on nltk.data.path, and `unstructured` would otherwise fetch
-    # these at RUNTIME -- which would quietly falsify "Foundry is the only egress".
     nl="$(dexec abi-rag-api python -c \
       'import nltk; nltk.data.find("tokenizers/punkt_tab"); print("ok")' \
       2>/dev/null | tr -d '\r')"
     assert 'NLTK corpora are baked in (no runtime egress)' \
       "$([ "$nl" = "ok" ] && echo 1 || echo 0)" "${nl:-missing}"
 
-    # Weights present in the volume => no runtime egress to huggingface.co.
     cached="$(dexec abi-rag-api sh -c \
       'find /app/hf -name "*.safetensors" -o -name "pytorch_model.bin" 2>/dev/null | head -n1' \
       2>/dev/null | tr -d '\r')"
     assert 'embedding model weights are cached in the volume' \
       "$([ -n "$cached" ] && echo 1 || echo 0)" "${cached:-nothing cached}"
 
-    # No bundled document is seeded anymore: vectors are created only after a user
-    # attaches a file in chat, so an empty table is the expected clean state.
     store="$(compose_x exec -T postgres psql -U "$PGUSER_" -d "$vdb" -tAc \
       "SELECT to_regclass('public.langchain_pg_embedding') IS NOT NULL" \
       2>&1 | tr -d '\r' | head -n1)"
@@ -715,16 +560,6 @@ if check V22 'RAG API embeds locally into pgvector (one Postgres, third database
   fi
 fi
 
-# =============================================================================
-# V23 -- agent capabilities are wired, not merely listed. Two silent failures:
-#
-#  1. `artifacts` in librechat.yaml gates only the UI toggle; the prompt teaching
-#     the model :::artifact syntax is injected only when the AGENT RECORD has a
-#     non-empty artifacts string. Toggle on, field empty => nothing ever renders.
-#  2. Specifying `capabilities:` REPLACES the default array, so adding file_search
-#     without re-listing programmatic_tools removes it -- and with it the Cube
-#     tools, which are code_execution-only.
-# =============================================================================
 if check V23 'Agent capabilities are wired end to end (artifacts, file_search)'; then
   for cap in execute_code tools artifacts programmatic_tools file_search actions; do
     grep -q "\"${cap}\"" "${REPO_ROOT}/config/librechat/librechat.yaml"
@@ -739,7 +574,6 @@ if check V23 'Agent capabilities are wired end to end (artifacts, file_search)';
     if [ -z "$dump" ]; then
       assert 'provisioned agent records exist' 0 'no agent records found'
     else
-      # Every agent must carry a non-empty artifacts field.
       n_agents="$(printf '%s\n' "$dump" | grep -c .)"
       n_art="$(printf '%s\n' "$dump" | awk -F'\t' '$2 != "" {c++} END {print c+0}')"
       assert 'every agent record has a non-empty artifacts field' \
@@ -760,8 +594,6 @@ if check V23 'Agent capabilities are wired end to end (artifacts, file_search)';
         "$([ "$n_embedded_rules" = "$n_agents" ] && [ "$n_agents" -gt 0 ] && echo 1 || echo 0)" \
         "${n_embedded_rules}/${n_agents}"
 
-      # RAG_API_URL is what actually turns file_search on. Pinned in compose, not
-      # .env, because unset yields no error -- just a missing tool.
       url="$(dexec abi-librechat printenv RAG_API_URL 2>/dev/null | tr -d '\r')"
       assert 'librechat has RAG_API_URL set' \
         "$([ -n "$url" ] && echo 1 || echo 0)" "${url:-unset}"
@@ -773,10 +605,6 @@ if check V23 'Agent capabilities are wired end to end (artifacts, file_search)';
   fi
 fi
 
-# =============================================================================
-# V24 -- LibreChat conversation search. Meilisearch is deliberately private but
-# must be healthy, authenticated, and have both indexes initialized.
-# =============================================================================
 if check V24 'Meilisearch backs private LibreChat conversation search'; then
   if ! container_running abi-meilisearch; then
     skipped 'meilisearch not running (docker compose --profile chat up -d)'
@@ -799,9 +627,6 @@ if check V24 'Meilisearch backs private LibreChat conversation search'; then
   fi
 fi
 
-# =============================================================================
-# V11 -- the only egress.
-# =============================================================================
 if check V11 'Azure Foundry endpoint answers (the only egress)'; then
   base="$(env_get AZURE_FOUNDRY_BASE_URL || true)"
   key="$(env_get AZURE_FOUNDRY_API_KEY || true)"
@@ -843,9 +668,6 @@ if check V11 'Azure Foundry endpoint answers (the only egress)'; then
   fi
 fi
 
-# =============================================================================
-# V12 / V13 -- Superset integrity.
-# =============================================================================
 if check V12 'Superset can still decrypt the stored Cube credential'; then
   if ! container_running abi-superset; then
     skipped 'superset not running'
@@ -893,7 +715,6 @@ with app.app_context():
   fi
 fi
 
-# =============================================================================
 printf '\n%s=======================================================%s\n' "$C_CYAN" "$C_RESET"
 if [ "$FAIL" -gt 0 ]; then
   printf '%s PASS %s   FAIL %s   SKIP %s%s\n' "$C_RED" "$PASS" "$FAIL" "$SKIP" "$C_RESET"

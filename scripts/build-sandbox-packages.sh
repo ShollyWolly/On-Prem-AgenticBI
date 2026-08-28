@@ -1,18 +1,4 @@
 #!/usr/bin/env bash
-# Populate the sandbox runtime volume (Python + Node + Bun + libraries). Run ONCE;
-# it compiles CPython from source with PGO, so budget 20-45 minutes.
-#
-# Everything must be baked in ahead of time because executed code has NO NETWORK:
-# there is no runtime pip install path. The default manifest already covers the
-# demo (pandas, numpy, matplotlib, seaborn, plotly, scikit-learn, ...).
-#
-# The container route rather than upstream's ./build-packages.sh, because it
-# writes to a named volume instead of the source tree and supports
-# PYTHON_PACKAGE_INSTALLER=uv.
-#
-# /pkgs/.initialized is the idempotence marker.
-#
-# Usage: scripts/build-sandbox-packages.sh [--force]
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 

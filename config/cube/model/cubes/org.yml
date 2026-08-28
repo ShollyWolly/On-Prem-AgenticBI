@@ -1,15 +1,3 @@
-# =============================================================================
-#  Organisation side: staff and stores.
-#
-#  NOTE ON staff.password AND staff.username: deliberately NOT exposed at all,
-#  not even masked. For a credential hash, excluding beats masking -- there is
-#  no legitimate analytical query for it, so the safest representation is
-#  absence. Masking would still put the column name in the model, invite the
-#  agent to select it, and depend on the mask being applied correctly.
-#
-#  staff.email IS exposed-but-masked, because "which employee handled this"
-#  is a real question and the masked form still answers it.
-# =============================================================================
 cubes:
   - name: staff
     sql_table: public.staff
@@ -69,9 +57,6 @@ cubes:
         primary_key: true
         public: false
 
-      # Pagila has no store name, only an id. A label reads far better on a
-      # chart axis than a bare integer, and it keeps the agent from presenting
-      # "1" and "2" as though they were counts.
       - name: store_label
         sql: "'Store ' || {CUBE}.store_id::text"
         type: string

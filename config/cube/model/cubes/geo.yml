@@ -1,10 +1,3 @@
-# =============================================================================
-#  Geography chain: address -> city -> country.
-#
-#  There is NO lat/long anywhere in Pagila -- only place names. No map chart is
-#  possible; do not plan one. Country and city are ordinary categorical
-#  dimensions and render as bar charts.
-# =============================================================================
 cubes:
   - name: addresses
     sql_table: public.address
@@ -28,11 +21,6 @@ cubes:
         sql: address
         type: string
         description: "Street address. PII."
-        # NOTE: a bare `mask: "some text"` does NOT work -- Cube parses the value
-        # as an expression, so unquoted words become undefined identifiers and
-        # the whole cube fails to compile ("redacted is not defined"), which
-        # then cascades into every view join path that touches this cube.
-        # Constant masks must be written as an explicit SQL string literal.
         mask:
           sql: "'*** redacted ***'"
 
@@ -50,8 +38,6 @@ cubes:
         sql: phone
         type: string
         description: "Contact phone number. PII."
-        # Last three digits kept so two records can be told apart without
-        # revealing the number.
         mask:
           sql: "'***-***-' || RIGHT({CUBE}.phone, 3)"
 
@@ -72,7 +58,6 @@ cubes:
         primary_key: true
         public: false
 
-      # `city` would shadow the cube name in some contexts; alias at the source.
       - name: city_name
         sql: city
         type: string

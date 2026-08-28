@@ -1,7 +1,3 @@
-# Actors and the film_actor bridge, plus language. Names are written to be
-# self-explanatory (`actor_name`, not `name`) because the agent reaches this
-# through a stock Postgres MCP and sees flat column names -- no titles, no
-# descriptions -- so the member name is the only documentation it gets.
 cubes:
   - name: actors
     sql_table: public.actor
@@ -24,9 +20,6 @@ cubes:
         sql: "{CUBE}.first_name || ' ' || {CUBE}.last_name"
         type: string
         title: Actor
-        # NOT masked. Actors are public figures in this dataset, not customers --
-        # a deliberate contrast with customers/staff, and a useful talking point:
-        # masking is per-member policy, not a blanket rule on anything name-shaped.
 
     measures:
       - name: actor_count
@@ -48,7 +41,6 @@ cubes:
         sql: "{CUBE}.film_id = {films}.film_id"
 
     dimensions:
-      # Composite PK upstream (film_id, actor_id); Cube needs one column.
       - name: id
         sql: "{CUBE}.film_id::text || '-' || {CUBE}.actor_id::text"
         type: string
@@ -68,8 +60,6 @@ cubes:
         public: false
 
       - name: language_name
-        # CHAR(20) upstream, so it arrives space-padded and every GROUP BY shows
-        # 'English             '. Trim at the source.
         sql: "TRIM({CUBE}.name)"
         type: string
         title: Language

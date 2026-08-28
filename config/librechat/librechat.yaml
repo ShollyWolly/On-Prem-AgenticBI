@@ -1,77 +1,38 @@
 version: 1.3.0
 cache: true
 
-# CRITICAL: SSRF protection activates whenever allowedAddresses is empty, and
-# every MCP server here is a Docker-bridge private IP -- without these entries
-# the server is silently blocked ("MCP server failed to initialize", no cause).
-# host:port only, no scheme/path/CIDR; a malformed entry is dropped silently.
 mcpSettings:
   allowedAddresses:
-    - "postgres-mcp-analyst:8000"
-    - "postgres-mcp-admin:8000"
+    - "cube-mcp:8000"
     - "superset-mcp:5008"
+    - "authentik.localhost:9000"
 
-# Two stock postgres-mcp servers over Cube's SQL API, byte-identical except the
-# SQL username in DATABASE_URI -- so any output difference is the semantic
-# layer's doing. Identity is bound to the SERVER, not the user: whoever reaches
-# cube_admin gets admin data. A demo prop, not governance. SSE, not
-# streamable-http: postgres-mcp 0.3.0 never shipped that transport.
 mcpServers:
-  cube_analyst:
-    type: sse
-    url: "http://postgres-mcp-analyst:8000/sse"
-    startup: true
+  cube:
+    type: streamable-http
+    url: "http://cube-mcp:8000/mcp"
+    oauth:
+      client_id: "cube-mcp"
+      authorization_url: "http://authentik.localhost:9000/application/o/authorize/"
+      token_url: "http://authentik.localhost:9000/application/o/token/"
+      scope: "openid profile email cube.read"
     timeout: 120000
-    initTimeout: 30000
-    chatMenu: true
-    serverInstructions: &cube_sql_instructions |
-      You are querying a Cube.dev SEMANTIC LAYER through its Postgres SQL API.
-      It is NOT a normal Postgres database. Read these rules before writing SQL.
+    initTimeout: 45000
+    chatMenu: false
+    serverInstructions: |
+      You are querying a governed Cube.dev semantic layer. Authenticate to this
+      MCP when LibreChat asks; Authentik SSO makes the consent flow user-specific.
 
-      TOOLS THAT WORK: execute_sql, list_schemas, list_objects,
-      get_object_details. Ignore explain_query, get_top_queries,
-      analyze_workload_indexes, analyze_query_indexes and analyze_db_health --
-      they need pg_stat_statements/hypopg/pg_indexes, which a semantic layer does
-      not implement, and they will just fail.
+      First call get_schema, then query with a structured Cube REST query object.
+      Use the semantic view/member names returned by get_schema; never invent raw
+      SQL, joins, CTEs, table names, or an identity/role argument. Query one view
+      at a time. Use measures, dimensions, filters, timeDimensions, order, limit,
+      and timezone as needed. Call whoami only when explaining policy effects.
 
-      1. ALWAYS wrap measures in MEASURE(), e.g.
-             SELECT MEASURE(total_revenue) FROM revenue_analytics
-         MEASURE() is valid for every measure type. A matched aggregate breaks on
-         some of them: SUM(paying_customers) fails with "Measure aggregation type
-         doesn't match" because it is a count-distinct measure.
-      2. Query ONE VIEW per statement. Never JOIN views or tables -- join paths
-         are already resolved inside each view, and adding your own inflates the
-         query plan into "Can't find rewrite due to N AST node limit reached".
-      3. No CTEs, no subqueries, no window functions. GROUP BY by ordinal
-         (GROUP BY 1, 2) so a DATE_TRUNC appears once.
-      4. For time series use DATE_TRUNC('month'|'week'|'day', <time column>) and
-         GROUP BY it. Selecting a bare timestamp column gives one row per second.
-      5. COUNT(*) is NOT supported (it raises an internal error). Use the
-         view's own count measure, e.g. MEASURE(payment_count).
+      Governance is server-side. The authenticated user's LDAP group controls the
+      result. Some columns are masked for analysts; do not try to reconstruct,
+      infer, or bypass masked values.
 
-      GOVERNANCE -- non-negotiable. Some columns are MASKED for this connection's
-      role, e.g. customers_email -> ***@domain, customers_full_name -> initials,
-      addresses_phone -> ***-***-123. Masking is enforced inside the semantic
-      layer, server-side; you cannot see through it and neither can any SQL you
-      write. Do not attempt to unmask, reconstruct, de-anonymise or infer masked
-      values, and do not try to work around them with string functions, joins or
-      aggregation tricks. If asked for masked data, say plainly that the field is
-      masked by policy for this role and continue with the rest of the analysis.
-
-  cube_admin:
-    type: sse
-    url: "http://postgres-mcp-admin:8000/sse"
-    startup: true
-    timeout: 120000
-    initTimeout: 30000
-    chatMenu: true
-    # Same instructions; this connection simply resolves to a role that is not
-    # masked. Nothing else differs.
-    serverInstructions: *cube_sql_instructions
-
-  # Superset's MCP server: reads existing charts/dashboards rather than
-  # re-deriving from the warehouse. No per-user identity -- every call runs as
-  # the read-only mcp_reader account, which lacks can_execute_sql_query.
   superset:
     type: streamable-http
     url: "http://superset-mcp:5008/mcp"
@@ -99,11 +60,8 @@ mcpServers:
       matters, or you will measure your own argument and mistake it for a defect.
 
       DO NOT CALL:
-        * get_chart_preview / update_chart_preview -- they need Selenium and a
           browser, and this deployment has neither. They will fail.
-        * execute_sql / save_sql_query / generate_chart / generate_dashboard /
           update_chart / add_chart_to_existing_dashboard / create_virtual_dataset
-          -- the service account is read-only and will be denied. You are here to
           ANALYSE, not to author.
 
       Responses are size-capped (25k tokens, default page size 10). If a result is
@@ -118,31 +76,24 @@ endpoints:
   custom:
     - name: "Azure Foundry"
       apiKey: "${AZURE_FOUNDRY_API_KEY}"
-      # Must NOT end in a slash: LibreChat appends /chat/completions itself, so a
-      # trailing slash yields .../v1//chat/completions and a 404.
       baseURL: "${AZURE_FOUNDRY_BASE_URL}"
       models:
         default: ["gpt-5-mini"]
-        # Foundry's /models response shape differs from the OpenAI list format,
-        # which yields an empty dropdown. Enumerate instead.
         fetch: false
       titleConvo: true
       modelDisplayLabel: "Azure Foundry"
-      # Reasoning models on the Azure path reject these.
       dropParams: ["user", "frequency_penalty", "presence_penalty"]
 
   agents:
     recursionLimit: 40
     maxRecursionLimit: 80
     disableBuilder: false
-    # ALL SIX must be listed: specifying `capabilities` at all REPLACES the
-    # default array, and programmatic_tools is not in that default.
     capabilities:
-      - "execute_code"        # the code-interpreter sandbox
-      - "tools"               # gates MCP tools
-      - "artifacts"           # second plot path: HTML/Recharts, no image plumbing
-      - "programmatic_tools"  # agent calls MCP tools from inside Python
-      - "file_search"         # RAG for documents users attach in chat
+      - "execute_code"
+      - "tools"
+      - "artifacts"
+      - "programmatic_tools"
+      - "file_search"
       - "actions"
 
 interface:

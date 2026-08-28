@@ -1,9 +1,3 @@
--- The healthcheck sentinel -- deliberately the alphabetically LAST file. During
--- initdb the temp server listens on a unix socket only, so a socket-based
--- pg_isready reports "ready" mid-seed and Cube would start against half-loaded
--- Pagila. The compose healthcheck needs BOTH gates: pg_isready -h 127.0.0.1
--- (forces TCP, the real server) and `select 1 from seed_complete` (proves the
--- date shift finished). Neither alone is sufficient.
 
 CREATE TABLE public.seed_complete (
   id           integer PRIMARY KEY DEFAULT 1,

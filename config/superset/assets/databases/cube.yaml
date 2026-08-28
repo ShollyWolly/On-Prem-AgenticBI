@@ -1,25 +1,18 @@
-# The Cube semantic layer, connected as an ordinary PostgreSQL database.
-# Placeholder rendered by superset-init before import -- import-directory does
-# not substitute placeholders itself. The SQL user in that URI decides what
-# every Superset user sees, since Superset holds one credential.
 database_name: Cube Semantic Layer
 sqlalchemy_uri: __CUBE_SQLALCHEMY_URI__
 
-# Read-only from Superset's side; cube_ro is SELECT-only too, so this is
-# defence in depth, not the only control.
 allow_dml: false
 allow_ctas: false
 allow_cvas: false
 allow_file_upload: false
-allow_run_async: false        # no Celery worker here; async would just queue forever
+allow_run_async: false
 expose_in_sqllab: true
 impersonate_user: false
 cache_timeout: 300
 
 extra:
-  # Validated with unknown=RAISE -- one stray key fails the whole import.
   allows_virtual_table_explore: true
-  disable_data_preview: true   # Cube's SQL API has no cheap preview; every one is a full scan
+  disable_data_preview: true
 
 uuid: 1b0d9e2a-6c41-4f8e-9a3d-000000000001
 version: 1.0.0

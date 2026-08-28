@@ -1,0 +1,44 @@
+diff --git a/api/strategies/openidStrategy.js b/api/strategies/openidStrategy.js
+index d9c2684..89deafd 100644
++++ b/api/strategies/openidStrategy.js
+@@ -821,6 +821,18 @@ async function processOpenIDAuth(tokenset, existingUsersOnly = false) {
+ 
+   user = await updateUser(user._id, user);
+ 
++  // Provision agents after OIDC user persistence.
++  try {
++    // Load the hook lazily to avoid auth dependency cycles.
++    const { provisionOidcAgents } = require('~/server/services/oidc-agent-provisioning');
++    await provisionOidcAgents(user);
++  } catch (provisionError) {
++    logger.error('[openidStrategy] OIDC agent provisioning failed', provisionError);
++  }
++
+   logger.info(
+     `[openidStrategy] login success openidId: ${user.openidId} | email: ${user.email} | username: ${user.username} `,
+     {
+@@ -929,6 +941,10 @@ async function setupOpenId() {
+       clientMetadata.token_endpoint_auth_method = 'none';
+     }
+ 
++    // Allow the local HTTP issuer when explicitly enabled.
++    const allowInsecureHttp = isEnabled(process.env.OPENID_ALLOW_INSECURE_HTTP);
++
+     openidConfig = await client.discovery(
+       new URL(process.env.OPENID_ISSUER),
+@@ -937,6 +953,7 @@ async function setupOpenId() {
+       undefined,
+       {
+         [client.customFetch]: customFetch,
++        ...(allowInsecureHttp ? { execute: [client.allowInsecureRequests] } : {}),
+       },
+     );
+ 
+@@ -945,6 +962,7 @@ async function setupOpenId() {
+       hasClientSecret: !!clientSecret,
+       tokenEndpointAuthMethod: clientMetadata.token_endpoint_auth_method ?? '(library default)',
+       generateNonce: shouldGenerateNonce,
++      allowInsecureHttp,
+     });
+ 
+     const openidLogin = new CustomOpenIDStrategy(

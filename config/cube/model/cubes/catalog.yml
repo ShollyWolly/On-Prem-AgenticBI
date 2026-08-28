@@ -1,11 +1,3 @@
-# Film catalogue: film -> film_category -> category, plus the inventory bridge
-# from a rental to both a film and a store.
-#
-# Type casts below are load-bearing, not style: rating is ENUM mpaa_rating (cast
-# ::text or the SQL API reports an opaque type), release_year is DOMAIN year
-# (cast ::integer). special_features/fulltext are array/tsvector and not exposed.
-# length is renamed film_length_minutes -- ambiguous otherwise, and a near-reserved
-# word in Cube's templating.
 cubes:
   - name: films
     sql_table: public.film
@@ -13,9 +5,6 @@ cubes:
     public: false
 
     joins:
-      # one_to_one, NOT one_to_many -- see the film_primary_categories cube below.
-      # With one_to_many here, every additive measure fans out by the number of
-      # categories a film has and silently over-reports.
       - name: film_primary_categories
         relationship: one_to_one
         sql: "{CUBE}.film_id = {film_primary_categories}.film_id"
@@ -64,8 +53,6 @@ cubes:
         title: Replacement Cost
 
     measures:
-      # Named film_count, not count: through a stock Postgres MCP the model sees
-      # only flat column names, and a bare `count` in a wide view is ambiguous.
       - name: film_count
         type: count
         title: Films
@@ -86,8 +73,6 @@ cubes:
         title: Avg Runtime (min)
 
     segments:
-      # Named, reusable filters -- cheaper and less error-prone than the model
-      # re-deriving the same WHERE clause every time.
       - name: long_films
         sql: "{CUBE}.length >= 120"
       - name: family_friendly
@@ -105,24 +90,11 @@ cubes:
         primary_key: true
         public: false
 
-      # `name` is too generic to expose through a flat view; alias at the source.
       - name: category_name
         sql: name
         type: string
         title: Category
 
-  # ONE CATEGORY PER FILM -- a modelling decision, not a passthrough.
-  # public.film_category is many-to-many (2367 rows / 1000 films), so joining it
-  # raw fans every film row out and any additive measure over-reports by ~2.37x
-  # (revenue by category came to 159,539.15 against a true 67,416.51 -- both Cube
-  # and hand-SQL agree, because that is what the join says). Resolved once here
-  # so every consumer gets the additive version; verify.sh V1c asserts it.
-  #
-  # Tiebreak is a HASH of (film_id, category_id), not MIN(category_id): MIN is
-  # stable but correlates with the id, draining revenue monotonically down the
-  # id order (Action $10,289 -> Travel $82) -- a fabricated trend. See
-  # docs/TRAPS.md. Cost: "every category a film belongs to" is not answerable
-  # through the model; that bridge is deliberately not modelled as a second cube.
   - name: film_primary_categories
     sql: >
       SELECT film_id, category_id, category_count
@@ -150,8 +122,6 @@ cubes:
         sql: "{CUBE}.film_id = {films}.film_id"
 
     dimensions:
-      # film_id is unique after the GROUP BY, so it is a real primary key -- the
-      # synthesised film_id||'-'||category_id key the raw bridge needed is gone.
       - name: film_id
         sql: film_id
         type: number

@@ -1,16 +1,3 @@
-# =============================================================================
-#  customer_analytics -- who the customers are and what they are worth.
-#  Grain: payment (so revenue measures are correct), pivoted for customer analysis.
-#
-#  WHY payment GRAIN AND NOT customer GRAIN: lifetime value has to come from the
-#  payment fact. A customer-grained view could only count customers, not sum
-#  money. Grouping this view by customers_customer_id gives per-customer revenue;
-#  grouping by city/country gives cohort views.
-#
-#  ACCESS POLICY IS MANDATORY ON EVERY VIEW. Cube does not inherit member-level
-#  policies from cubes, so a view shipped without a policy exposes every member in
-#  the clear to every group. This is the single easiest way to open a hole.
-# =============================================================================
 views:
   - name: customer_analytics
     title: Customer Analytics
@@ -40,7 +27,6 @@ views:
           - created_at
           - customer_count
           - active_customer_count
-          # Segments must be included explicitly to be usable through the view.
           - active_customers
           - inactive_customers
 

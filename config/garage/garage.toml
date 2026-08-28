@@ -1,26 +1,17 @@
-# Garage S3 storage for the code-interpreter file server. Not MinIO -- MinIO
-# relicensed and gutted its community edition.
-#
-# NO SECRETS HERE: rpc_secret / admin_token come from GARAGE_RPC_SECRET /
-# GARAGE_ADMIN_TOKEN instead. Garage refuses to start if a config file holding
-# secrets is group/world-readable, which Garage rejects.
 
 metadata_dir = "/var/lib/garage/meta"
 data_dir     = "/var/lib/garage/data"
 
-db_engine = "sqlite"           # lmdb's sparse-file behaviour misbehaves on this overlay/9p fs
-replication_factor = 1         # single node -- Garage requires this stated explicitly
+db_engine = "sqlite"
+replication_factor = 1
 
 rpc_bind_addr   = "[::]:3901"
 rpc_public_addr = "127.0.0.1:3901"
 
 [s3_api]
-# us-east-1, not a custom name: the file server's S3 client defaults to it, and a
-# mismatch invalidates every SigV4 signature -- surfacing only as "MinIO not
-# ready, retrying..." with an empty error string, so it looks like connectivity.
 s3_region      = "us-east-1"
 api_bind_addr  = "[::]:3900"
-root_domain    = ".s3.garage.internal"   # path-style only; the client needs no vhost domain
+root_domain    = ".s3.garage.internal"
 
 [admin]
 api_bind_addr = "[::]:3903"

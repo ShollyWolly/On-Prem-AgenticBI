@@ -1,30 +1,4 @@
-"""
-Smoke test the two stock Postgres MCP servers over real MCP SSE protocol.
-
-Runs on the HOST (needs `pip install httpx`) or anywhere that can reach the
-published ports. Usage:
-
-    python scripts/smoke/test_pgmcp.py
-
-What this proves, and why each check exists:
-
-  * Both servers speak MCP and can query Cube at all -- postgres-mcp uses
-    psycopg3 with CLIENT-SIDE parameter interpolation, so it sends the SIMPLE
-    query protocol that Cube's partial-Postgres SQL API supports. (asyncpg,
-    which only speaks the extended protocol, cannot talk to Cube at all.)
-
-  * MASKING IS ENFORCED BY CUBE, not by the MCP server. The analyst container and
-    the admin container run the SAME image with the SAME flags and differ only in
-    the SQL username in DATABASE_URI. Different results therefore prove the
-    semantic layer is the enforcement point.
-
-  * The two controls we used to hand-roll are Cube's job now, so they are
-    asserted here rather than in application code:
-      - `SELECT *` is masked for the analyst (dimension masks survive ungrouped
-        queries; Cube's "no masks on ungrouped" caveat is about MEASURE masks).
-      - `WHERE __user = 'admin@demo.local'` is REFUSED by Cube, because cube.js
-        pins canSwitchSqlUser: () => false and CUBEJS_SQL_SUPER_USER is unset.
-"""
+"""Smoke test Postgres MCP servers over MCP SSE."""
 from __future__ import annotations
 
 import json
@@ -38,8 +12,7 @@ ADMIN = "http://localhost:8002"
 
 
 class SseMcp:
-    """Minimal MCP-over-SSE client. postgres-mcp 0.3.0 ships SSE only --
-    streamable-http was merged upstream but never released or imaged."""
+    """Minimal MCP-over-SSE client."""
 
     def __init__(self, base: str):
         self.base = base
@@ -50,7 +23,6 @@ class SseMcp:
         self._lines = None
 
     def open(self) -> "SseMcp":
-        # GET /sse holds open and first yields the per-session POST endpoint.
         self._stream = self.client.stream("GET", f"{self.base}/sse",
                                           headers={"Accept": "text/event-stream"})
         resp = self._stream.__enter__()
@@ -86,7 +58,6 @@ class SseMcp:
         want = self._id
         self._post({"jsonrpc": "2.0", "id": want, "method": method,
                     **({"params": params} if params is not None else {})})
-        # Responses arrive on the SSE stream, not in the POST body.
         for line in self._lines:
             if not line.startswith("data:"):
                 continue
@@ -113,13 +84,6 @@ class SseMcp:
                 out.append(block["text"])
         text = "\n".join(out)
 
-        # postgres-mcp POOLS connections to Cube and does not validate them on
-        # checkout, so restarting Cube leaves dead sockets in the pool and the
-        # FIRST query to reuse one fails with "server closed the connection
-        # unexpectedly". The retry then succeeds against a fresh connection.
-        # Retry once: this test is here to measure masking, not pool freshness,
-        # and without this a `docker compose restart cube` makes it look like the
-        # admin role lost its access.
         if _retry and "server closed the connection unexpectedly" in text:
             return self.sql(statement, _retry=False)
         return text
@@ -177,10 +141,6 @@ def main() -> int:
           "cannot change security context" in esc.lower(),
           esc.replace("\n", " ")[:110])
 
-    # We run --access-mode=unrestricted so that MEASURE() is usable, so proving
-    # mutation is impossible is no longer the MCP server's job -- it is Cube's,
-    # plus the SELECT-only cube_ro Postgres role behind it. Assert it explicitly
-    # rather than assuming, because this is the control we gave up in the MCP.
     ins = a.sql("INSERT INTO revenue_analytics VALUES (1)")
     check("INSERT refused by Cube", "unsupported query type" in ins.lower(),
           ins.replace("\n", " ")[:90])
@@ -188,8 +148,6 @@ def main() -> int:
     check("DROP refused by Cube", "error" in drp.lower(),
           drp.replace("\n", " ")[:90])
 
-    # MEASURE() is the whole reason for unrestricted mode: it is valid for every
-    # measure type, whereas a matched aggregate on a count_distinct measure fails.
     meas = a.sql("SELECT MEASURE(paying_customers) AS c FROM revenue_analytics")
     check("MEASURE() works on a count_distinct measure", "599" in meas,
           meas.replace("\n", " ")[:70])

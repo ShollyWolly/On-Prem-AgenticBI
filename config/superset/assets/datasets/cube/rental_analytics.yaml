@@ -1,11 +1,3 @@
-# Physical dataset on the rental_analytics Cube view. See
-# revenue_analytics.yaml for why columns are declared explicitly and why
-# metrics use MEASURE().
-#
-# NOTE: do NOT build a continuous time-series line chart on rented_at. The
-# source data has two consecutive months with zero rentals and it renders as a
-# gap that looks like a data-pipeline fault. Revenue trends belong on
-# revenue_analytics.paid_at.
 table_name: rental_analytics
 schema: public
 sql: null
