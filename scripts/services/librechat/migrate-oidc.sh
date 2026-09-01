@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 container_running abi-mongodb || die "abi-mongodb is not running"
 command -v base64 >/dev/null || die "base64 is required"
@@ -9,6 +9,7 @@ INSTRUCTIONS_FILE="${REPO_ROOT}/config/librechat/agent-instructions.md"
 [ -s "$INSTRUCTIONS_FILE" ] || die "missing $INSTRUCTIONS_FILE"
 INSTRUCTIONS_B64="$(base64 -w 0 "$INSTRUCTIONS_FILE")"
 
+# This migration replaces legacy role-specific Cube tools with the user-scoped OAuth server.
 step "Migrating existing Cube agents to per-user OAuth MCP"
 read -r -d '' JS <<'JSEOF' || true
 const text = Buffer.from(process.env.AGENT_INSTRUCTIONS_B64, 'base64').toString('utf8');

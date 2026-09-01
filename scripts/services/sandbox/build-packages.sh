@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1

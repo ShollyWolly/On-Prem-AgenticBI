@@ -7,7 +7,7 @@ x-superset-image: &superset-image
   image: abi/superset:6.1.0-psycopg2
 
 x-superset-env: &superset-env
-  SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?generate once with scripts/gen-secrets.sh, then never rotate}
+  SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?generate once with scripts/general/gen-secrets.sh, then never rotate}
   SUPERSET_METADATA_URI: postgresql+psycopg2://${SUPERSET_DB_USER:-superset}:${SUPERSET_DB_PASSWORD:?}@postgres:5432/${SUPERSET_DB_NAME:-superset}
   SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
   SUPERSET_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?}
@@ -104,6 +104,7 @@ services:
     networks: [abi]
     restart: unless-stopped
 
+  # Cube REST stays on the internal network and accepts only gateway-issued tokens.
   cube:
     image: cubejs/cube:v1.6.70
     container_name: abi-cube
@@ -312,6 +313,7 @@ services:
     networks: [abi]
     restart: unless-stopped
 
+  # This is the sole OAuth-protected route from agents to the Cube semantic layer.
   cube-mcp:
     build:
       context: ./docker/cube-mcp

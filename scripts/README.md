@@ -1,48 +1,48 @@
 # scripts/
 
-Host-side, idempotent operational scripts. `bootstrap.sh` calls the appropriate
-ones during first setup; each can also be re-run for the documented recovery use.
+Host-side, idempotent operational commands arranged by responsibility.
 
-## Setup and recovery
+## Layout
 
-| Script | Use | Notes |
+| Directory | Purpose | Primary commands |
 |---|---|---|
-| `gen-secrets.sh` | Create local secrets | Use `--apply --force` only for initial setup or a deliberate reset. |
-| `fetch-pagila.sh` | Fetch the pinned Pagila SQL | Skips existing seed files unless forced. |
-| `init-ldap.sh` | Reconcile demo LDAP users and groups | Re-applies passwords and validates binds. |
-| `patch-librechat-oidc.sh` | Apply the pinned LibreChat OIDC patch | Bootstrap runs it after cloning the vendor source. |
-| `migrate-librechat-oidc.sh` | Preserve legacy LibreChat records during OIDC migration | Safe to re-run; compatibility wrapper `migrate-librechat-ldap.sh` calls it. |
-| `provision-agent.sh` | Repair managed agents for existing OIDC users | Normal first OIDC login provisions agents automatically. |
-| `init-vectordb.sh` | Create the RAG vector database on existing PostgreSQL state | `initdb.d` only runs for a new volume. |
-| `init-garage.sh` | Initialize sandbox object storage | Requires the sandbox Garage service. |
-| `build-sandbox-packages.sh` | Prebuild sandbox Python packages | Uses the package-volume marker for idempotence. |
+| `general/` | Shared shell support and setup prerequisites | `gen-secrets.sh`, `fetch-pagila.sh` |
+| `deployment/` | Full setup and Compose lifecycle | `bootstrap.sh`, `up.sh`, `down.sh`, `status.sh` |
+| `services/` | Service-owned initialization and recovery | LDAP, PostgreSQL, LibreChat, and sandbox scripts |
 
-## Validation
-
-`verify.sh` is the operator verification suite.
+## Common commands
 
 ```bash
-bash ./scripts/verify.sh V1
-bash ./scripts/verify.sh V4
-bash ./scripts/verify.sh
+# Full first-time setup; the repository-root wrapper stays the easiest entry point.
+bash ./bootstrap.sh
+
+# Start the base stack, or add any optional profiles.
+bash ./scripts/deployment/up.sh
+bash ./scripts/deployment/up.sh --profile chat --profile sandbox
+
+# Inspect or stop the Compose project.
+bash ./scripts/deployment/status.sh --profile chat
+bash ./scripts/deployment/down.sh
+
+# Explicitly destructive: deletes local Compose volumes and their data.
+bash ./scripts/deployment/down.sh --volumes
+
 ```
 
-- `V1` verifies Cube masks, deny behavior, and data reconciliation.
-- `V4` verifies the OAuth-protected Cube MCP endpoint and Authentik JWKS signing
-  key.
-- `V20` verifies LDAP and Authentik configuration.
-- `V21` verifies the Superset MCP read-only boundary.
+`up.sh` expects the checkout to have been bootstrapped already: it starts
+services and runs safe initializers, but does not generate secrets, vendor
+sources, build images, or compile sandbox packages.
 
-`smoke/test_cube_mcp.py` validates the Cube MCP protocol. `smoke/test_superset_mcp.py`
-validates Superset MCP behavior. `smoke/agent_turn.py` is the end-to-end LibreChat
-agent test and is the only smoke test that exercises a real managed-agent record.
+## Service recovery
 
-`lib.sh` is sourced by shell scripts and provides logging, `.env` lookup, and
-Docker wrappers. Use its wrappers for commands that reference container paths.
+| Service | Canonical command | Use |
+|---|---|---|
+| LDAP | `services/ldap/init.sh` | Reconcile demo users and groups. |
+| PostgreSQL | `services/postgres/init-vectordb.sh` | Add or repair the RAG vector database on existing state. |
+| Sandbox | `services/sandbox/init-garage.sh` | Initialize Garage object storage. |
+| Sandbox | `services/sandbox/build-packages.sh` | Prebuild sandbox Python packages. |
+| LibreChat | `services/librechat/patch-oidc.sh` | Apply the pinned upstream OIDC patch. |
+| LibreChat | `services/librechat/migrate-oidc.sh` | Preserve legacy agent records during OIDC migration. |
 
-## Shell behavior
-
-`verify.sh` intentionally disables `pipefail`; `lib.sh` does not. Some assertions
-use `printf | grep -q`, where an early matching `grep` can close the pipe and make
-`printf` return SIGPIPE. Enabling `pipefail` in the suite turns a successful match
-into an apparent failure.
+`general/lib.sh` is sourced by implementation scripts and provides logging,
+`.env` lookup, and Docker wrappers.

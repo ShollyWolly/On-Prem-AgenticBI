@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 SOURCE="${REPO_ROOT}/vendor/LibreChat/api/strategies/openidStrategy.js"
 PATCH_FILE="${REPO_ROOT}/docker/librechat/openid-strategy.patch"

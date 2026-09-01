@@ -33,8 +33,8 @@ Keep these invariants:
 operator checks. LibreChat's Cube MCP access is derived from verified Authentik
 group claims instead.
 
-Run `bash ./scripts/verify.sh V1` after changing Cube models, role mapping,
-masks, or views. Run `V4` after changing Authentik or Cube MCP OAuth settings.
+After changing Cube models, role mapping, masks, views, Authentik, or Cube MCP
+OAuth settings, validate both masked analyst results and unmasked admin results.
 
 ## Identity settings
 
@@ -44,5 +44,5 @@ uses direct LDAP authentication and a fixed Cube SQL identity, so it is not a
 per-user Cube pass-through path.
 
 The local `.env` contains stable secrets and is not committed. Generate initial
-values with `bash ./scripts/gen-secrets.sh --apply --force`; then set the Azure
+values with `bash ./scripts/general/gen-secrets.sh --apply --force`; then set the Azure
 Foundry endpoint, API key, and model before running the chat profile.

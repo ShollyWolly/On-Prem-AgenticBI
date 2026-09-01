@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 VDB="$(env_get VECTOR_DB_NAME || echo vectordb)"
 VUSER="$(env_get VECTOR_DB_USER || echo vectoruser)"

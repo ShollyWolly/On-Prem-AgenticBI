@@ -8,6 +8,7 @@ app = create_app()
 
 CATEGORICAL_SCHEME = "agenticBiDark"
 
+# Stable UUIDs make repeated provisioning update the same charts instead of duplicating them.
 CHART_NS = uuid.uuid5(uuid.NAMESPACE_URL, "https://localCompany.example/agentic-bi/charts")
 
 
@@ -204,6 +205,7 @@ def main():
         dash.slices = slices
         dash.position_json = json.dumps(build_position(slices))
 
+        # The provisioner owns every chart in this demo dashboard and removes stale ones.
         managed = {sl.id for sl in slices}
         for orphan in db.session.query(Slice).all():
             if orphan.id in managed:

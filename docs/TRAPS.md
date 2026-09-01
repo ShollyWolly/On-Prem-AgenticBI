@@ -8,7 +8,7 @@ health alone.
 
 - Never demonstrate with `CUBE_MODE=dev`. Cube development mode disables
   member-level access control, so masked data can return as real PII. Use
-  `CUBE_MODE=demo` and run `bash ./scripts/verify.sh V1`.
+  `CUBE_MODE=demo` and validate masking with both an analyst and an admin identity.
 - `mask` belongs on cubes and `access_policy` belongs on views. Policies on a
   base cube do not govern queries against a view.
 - Use `{ securityContext.x }`, not Cube Cloud user attributes. The gateway puts
@@ -44,8 +44,7 @@ health alone.
   `cube-mcp:8000`, `superset-mcp:5008`, and `authentik.localhost:9000` in
   `config/librechat/librechat.yaml`.
 - The LibreChat OIDC patch provisions agents after a persisted user record exists.
-  If agents are missing for a user who already logged in, run
-  `bash ./scripts/provision-agent.sh`; do not create agent records by hand.
+  Do not create agent records by hand.
 - After changing the Authentik provider, reconnect the Cube connection in
   LibreChat so it obtains a fresh access token.
 
@@ -79,7 +78,7 @@ health alone.
 ## State and diagnosis
 
 - `initdb.d` only runs for a new PostgreSQL volume. Use
-  `scripts/init-vectordb.sh` when adding the vector database to an existing
+  `scripts/services/postgres/init-vectordb.sh` when adding the vector database to an existing
   installation.
 - A fresh Authentik state needs the LDAP source and providers from the mounted
   blueprint. Inspect Authentik provider configuration before weakening token

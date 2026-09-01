@@ -7,6 +7,7 @@ const { logger } = require('@librechat/data-schemas');
 const { grantPermission } = require('~/server/services/PermissionService');
 const { ResourceType, AccessRoleIds, PrincipalType } = require('librechat-data-provider');
 
+// Agent prompts are mounted configuration so updated instructions propagate on login.
 const configDir = process.env.AGENTIC_BI_CONFIG_DIR || '/app/agentic-bi-config';
 
 const readInstructions = (filename) => {
@@ -67,6 +68,7 @@ const agentSpecs = () => [
 ];
 
 async function grantOwnerPermissions(userId, agentId) {
+  // Each provisioned agent belongs only to the OIDC user who triggered its creation.
   await Promise.all([
     grantPermission({
       principalType: PrincipalType.USER,
@@ -88,6 +90,7 @@ async function grantOwnerPermissions(userId, agentId) {
 }
 
 async function provisionOidcAgents(user) {
+  // Local and anonymous users cannot receive the governed preconfigured agents.
   if (!user?._id || user.provider !== 'openid') {
     return;
   }

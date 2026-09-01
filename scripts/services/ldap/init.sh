@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 BASE_DN="$(env_get LDAP_BASE_DN || echo 'dc=demo,dc=local')"
 ADMIN_DN="$(env_get LDAP_ADMIN_DN || echo "cn=admin,${BASE_DN}")"
@@ -74,6 +74,7 @@ LDIF
 add_user "${ANALYST_EMAIL%%@*}" "Demo Analyst" "Analyst" "$ANALYST_EMAIL" "$ANALYST_PW"
 add_user "${ADMIN_EMAIL%%@*}"   "Demo Admin"   "Admin"   "$ADMIN_EMAIL"   "$ADMIN_USER_PW"
 
+# Recreate managed groups so the memberOf values always match the demo identities.
 for g in analysts admins; do
   dexec -e LDAP_PW="$ADMIN_PW" abi-openldap sh -c \
     "ldapdelete -x -H ldap://localhost -D '${ADMIN_DN}' -w \"\$LDAP_PW\" 'cn=${g},ou=groups,${BASE_DN}'" \

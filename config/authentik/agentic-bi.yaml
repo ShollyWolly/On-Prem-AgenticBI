@@ -6,6 +6,7 @@ metadata:
     blueprints.goauthentik.io/description: LDAP-backed SSO for LibreChat and Cube MCP
 
 entries:
+  # LDAP remains the source of truth for the groups used by application authorization.
   - model: authentik_sources_ldap.ldapsource
     identifiers:
       slug: agentic-bi-ldap
@@ -44,6 +45,7 @@ entries:
       name: Agentic BI Cube MCP read scope
       scope_name: cube.read
       description: Read governed Cube semantic data through the MCP resource server
+      # This scope grants MCP access while Cube still enforces the user's role.
       expression: |
         return {}
 
@@ -90,6 +92,7 @@ entries:
       name: Cube MCP OAuth
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      # Local MCP clients complete this user-facing OAuth flow without a client secret.
       client_type: public
       client_id: cube-mcp
       grant_types:

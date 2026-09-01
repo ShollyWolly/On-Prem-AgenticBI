@@ -1,6 +1,7 @@
 
 const DENIED = 'denied';
 
+// SQL clients have fixed identities from configuration, while unknown users are denied.
 const ROLE_MAP = JSON.parse(process.env.CUBE_USER_ROLE_MAP || '{}');
 const REST_ROLES = new Set(['analyst', 'admin']);
 
@@ -29,6 +30,7 @@ module.exports = {
     securityContext: identityFor(username),
   }),
 
+  // Separate Cube cache namespaces by role so cached data never crosses roles.
   contextToAppId: ({ securityContext }) =>
     `cube_${(securityContext && securityContext.role) || DENIED}`,
 
@@ -37,6 +39,7 @@ module.exports = {
       ? securityContext.securityContext
       : securityContext;
     const sc = Object.assign({}, supplied);
+    // The gateway must supply exactly one supported role or Cube fails closed.
     const permitted = REST_ROLES.has(sc.role) && Array.isArray(sc.groups) &&
       sc.groups.length === 1 && sc.groups[0] === sc.role;
     if (!permitted) return { securityContext: { role: DENIED, groups: [DENIED] } };

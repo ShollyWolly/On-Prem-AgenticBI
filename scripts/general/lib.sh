@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
 
 if [ -t 1 ]; then
@@ -30,7 +30,7 @@ env_get() {
 env_require() {
   local key="$1" val
   val="$(env_get "$key" || true)"
-  [ -n "$val" ] || die "$key is missing from .env (run scripts/gen-secrets.sh --apply)"
+  [ -n "$val" ] || die "$key is missing from .env (run scripts/general/gen-secrets.sh --apply)"
   printf '%s' "$val"
 }
 

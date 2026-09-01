@@ -15,6 +15,7 @@ from fastmcp.server.dependencies import get_access_token
 from pydantic import AnyHttpUrl
 
 DENIED = "denied"
+# The gateway accepts semantic queries only, so callers cannot send raw SQL to Cube.
 ALLOWED_QUERY_KEYS = {
     "measures", "dimensions", "filters", "timeDimensions", "segments",
     "order", "limit", "offset", "timezone", "total", "ungrouped",
@@ -37,6 +38,7 @@ def identity_from_token() -> dict[str, Any]:
     if not subject or not email or not isinstance(groups, list):
         raise ValueError("Authenticated token is missing a required identity claim")
 
+    # Exactly one recognized LDAP group must map to a Cube role.
     group_names = {str(group).strip().lower() for group in groups}
     mapped = []
     if "analysts" in group_names:
@@ -49,6 +51,7 @@ def identity_from_token() -> dict[str, Any]:
 
 
 def cube_token(identity: Mapping[str, Any]) -> str:
+    # Cube receives a short-lived internal token, never the caller's OAuth token.
     now = int(time.time())
     return jwt.encode(
         {"iat": now, "exp": now + 60, "securityContext": dict(identity)},
@@ -58,6 +61,7 @@ def cube_token(identity: Mapping[str, Any]) -> str:
 
 
 def validate_query(query: Mapping[str, Any]) -> dict[str, Any]:
+    # This whitelist limits requests to the Cube REST query format.
     if not isinstance(query, Mapping) or not query:
         raise ValueError("query must be a non-empty Cube REST query object")
     unknown = set(query) - ALLOWED_QUERY_KEYS
@@ -76,6 +80,7 @@ def validate_query(query: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def cube_request(method: str, path: str, identity: Mapping[str, Any], **kwargs: Any) -> dict[str, Any]:
+    # Cube evaluates view policies from the signed security context on every request.
     headers = {"Authorization": f"Bearer {cube_token(identity)}"}
     async with httpx.AsyncClient(timeout=45) as client:
         response = await client.request(method, f"{CUBE_BASE_URL}{path}", headers=headers, **kwargs)
@@ -84,6 +89,7 @@ async def cube_request(method: str, path: str, identity: Mapping[str, Any], **kw
     return response.json()
 
 
+# Authentik verifies the issuer, signature, and cube.read scope before each tool runs.
 token_verifier = JWTVerifier(
     jwks_uri=AUTHENTIK_JWKS,
     issuer=AUTHENTIK_ISSUER,

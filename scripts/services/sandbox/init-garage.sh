@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 ACCESS_KEY="$(env_require MINIO_ACCESS_KEY)"
 SECRET_KEY="$(env_require MINIO_SECRET_KEY)"

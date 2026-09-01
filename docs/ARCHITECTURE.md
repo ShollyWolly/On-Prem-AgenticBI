@@ -102,8 +102,7 @@ Meilisearch indexes private conversation metadata. RAG API stores vectors for
 user-attached documents in the `vectordb` PostgreSQL database.
 
 The LibreChat OIDC callback provisions managed agents after a user's first
-successful login. `scripts/provision-agent.sh` repairs agents for users who have
-already logged in. It does not create a directory user or bypass Authentik.
+successful login. It does not create a directory user or bypass Authentik.
 
 | Agent | Tool server | Access model |
 |---|---|---|
@@ -156,9 +155,9 @@ execution after startup.
 
 | State | Volume or service | Recovery consideration |
 |---|---|---|
-| LDAP users and groups | `ldap_data`, `ldap_config` | Run `scripts/init-ldap.sh` to reconcile seeded entries. |
+| LDAP users and groups | `ldap_data`, `ldap_config` | Run `scripts/services/ldap/init.sh` to reconcile seeded entries. |
 | Authentik configuration | Authentik PostgreSQL and media volumes | Blueprints create the LDAP source and OAuth providers on a fresh state. |
-| Chat users and agents | MongoDB volume | First OIDC login provisions agents; use `provision-agent.sh` for repair. |
+| Chat users and agents | MongoDB volume | First OIDC login provisions agents. |
 | Superset dashboard | Superset home and PostgreSQL | Do not rotate `SUPERSET_SECRET_KEY`. |
 | Warehouse and vectors | PostgreSQL volume | `initdb.d` only runs on a new volume. |
 
@@ -172,11 +171,7 @@ Use these checks after changes:
 ```bash
 docker compose config -q
 docker compose ps
-bash ./scripts/verify.sh V1
-bash ./scripts/verify.sh
 ```
 
-`V1` checks Cube masking and denial. `V4` checks the OAuth-protected Cube MCP
-and JWKS signing key. `V20` checks the LDAP and Authentik path. `V21` checks the
-Superset MCP read-only boundary. See [TRAPS.md](TRAPS.md) for expected failure
-patterns and the relevant targeted checks.
+Validate authorization, OAuth, LDAP, and Superset MCP behavior after changes.
+See [TRAPS.md](TRAPS.md) for expected failure patterns.

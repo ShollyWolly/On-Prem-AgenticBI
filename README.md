@@ -136,7 +136,7 @@ sequenceDiagram
 1. Create local secrets and set the Azure Foundry values in `.env`.
 
    ```bash
-   bash ./scripts/gen-secrets.sh --apply --force
+   bash ./scripts/general/gen-secrets.sh --apply --force
    ```
 
    Set `AZURE_FOUNDRY_BASE_URL`, `AZURE_FOUNDRY_API_KEY`, and
@@ -153,7 +153,16 @@ sequenceDiagram
    builds images, starts profiles, initializes LDAP and storage, and runs checks.
    The initial sandbox build can take 20-45 minutes.
 
-For a targeted startup:
+For a managed targeted startup after bootstrap, use the lifecycle helper. It
+starts the base stack and runs the required safe initializers for each profile.
+
+```bash
+bash ./scripts/deployment/up.sh
+bash ./scripts/deployment/up.sh --profile chat --profile sandbox
+bash ./scripts/deployment/status.sh --profile chat --profile sandbox
+```
+
+For manual targeted startup:
 
 ```bash
 docker compose up -d
@@ -221,18 +230,14 @@ dashboard, but it does not pass each dashboard user's identity into Cube.
 ```bash
 docker compose config -q
 docker compose ps
-bash ./scripts/verify.sh V1
-bash ./scripts/verify.sh
 ```
 
-Run `V1` after Cube model, role, mask, or access-policy changes. Run the full
-suite after cross-service changes when Azure credentials are configured. The
-checks validate actual authorization and MCP behavior, not only container health.
+After Cube model, role, mask, access-policy, or cross-service changes, validate
+the affected authorization and MCP behavior in your deployment workflow; a
+healthy container alone is not sufficient.
 
-To repair directory data, run `bash ./scripts/init-ldap.sh`. To repair or create
-agents for users who have already completed OIDC login, run
-`bash ./scripts/provision-agent.sh`. It is a recovery path; normal first login
-provisions agents automatically.
+To repair directory data, run `bash ./scripts/services/ldap/init.sh`. Normal
+first LibreChat login provisions each user's managed agents automatically.
 
 For a reset of local state:
 

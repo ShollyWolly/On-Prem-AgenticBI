@@ -3,6 +3,7 @@ from werkzeug.security import check_password_hash
 
 from superset.app import create_app
 
+# This local service account is not LDAP-managed and must keep its stable username.
 SERVICE_ACCOUNTS = {"mcp_reader"}
 
 

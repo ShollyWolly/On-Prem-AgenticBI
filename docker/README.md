@@ -22,7 +22,8 @@ and `cube.read` scope; derives the identity from verified claims; and creates a
 short-lived Cube JWT. It is the only chat-side service with `CUBEJS_API_SECRET`.
 
 Do not expose Cube REST, disable token verification, or add a user-selected role
-parameter. Test this boundary with `bash ./scripts/verify.sh V4`.
+parameter. Validate this boundary with authenticated and unauthenticated Cube
+MCP requests.
 
 ## Build notes
 

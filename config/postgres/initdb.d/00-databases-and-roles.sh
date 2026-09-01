@@ -12,6 +12,7 @@ echo ">>> 00-databases-and-roles: creating superset DB and cube_ro role"
 : "${VECTOR_DB_USER:?VECTOR_DB_USER must be set}"
 : "${VECTOR_DB_PASSWORD:?VECTOR_DB_PASSWORD must be set}"
 
+# Separate database roles limit each service to the data it needs.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
 CREATE ROLE :"superset_user" LOGIN PASSWORD :'superset_pw';
 CREATE DATABASE :"superset_db" OWNER :"superset_user";

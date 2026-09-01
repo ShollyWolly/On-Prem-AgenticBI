@@ -58,6 +58,7 @@ views:
         includes:
           - category_name
 
+    # View policy controls which members each role can query and which PII values Cube masks.
     access_policy:
       - group: analyst
         member_level:

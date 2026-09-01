@@ -34,6 +34,7 @@ FEATURE_FLAGS: dict[str, bool] = {
 _AUTH_MODE = os.environ.get("SUPERSET_AUTH", "ldap").strip().lower()
 
 if _AUTH_MODE == "ldap":
+    # Human dashboard users authenticate against LDAP and receive roles from LDAP groups.
     from flask_appbuilder.security.manager import AUTH_LDAP
 
     AUTH_TYPE = AUTH_LDAP
@@ -62,6 +63,7 @@ if _AUTH_MODE == "ldap":
         f"cn=analysts,ou=groups,{os.environ['LDAP_BASE_DN']}": ["Alpha"],
     }
 
+# The Superset MCP service uses its own read-only account rather than a human account.
 MCP_DEV_USERNAME = "mcp_reader"
 MCP_RBAC_ENABLED = True
 

@@ -4,6 +4,7 @@ from superset.app import create_app
 ROLE_NAME = "McpReader"
 USERNAME = "mcp_reader"
 
+# This account can inspect dashboard metadata and data but cannot modify Superset objects.
 READ_MODELS = (
     "Chart",
     "Dashboard",
@@ -49,6 +50,7 @@ def main() -> None:
                 sm.add_permission_role(role, pv)
                 granted += 1
 
+        # Datasource access is required to read each imported Cube-backed dataset.
         for pv in db.session.query(sm.permissionview_model).all():
             if pv.permission and pv.permission.name == "datasource_access":
                 if pv not in role.permissions:

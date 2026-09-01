@@ -1,13 +1,17 @@
 diff --git a/api/strategies/openidStrategy.js b/api/strategies/openidStrategy.js
-index d9c2684..89deafd 100644
+index d9c2684..dc3b052 100644
+--- a/api/strategies/openidStrategy.js
 +++ b/api/strategies/openidStrategy.js
 @@ -821,6 +821,18 @@ async function processOpenIDAuth(tokenset, existingUsersOnly = false) {
  
    user = await updateUser(user._id, user);
  
-+  // Provision agents after OIDC user persistence.
++  // The user record only exists after this callback. Provisioning here makes the
++  // managed agents appear on a person's first OIDC login, while a failure must
++  // never turn a successful directory login into an authentication failure.
 +  try {
-+    // Load the hook lazily to avoid auth dependency cycles.
++    // Load only after the strategy module is initialized: PermissionService is
++    // part of LibreChat's authentication dependency graph.
 +    const { provisionOidcAgents } = require('~/server/services/oidc-agent-provisioning');
 +    await provisionOidcAgents(user);
 +  } catch (provisionError) {
@@ -21,9 +25,11 @@ index d9c2684..89deafd 100644
        clientMetadata.token_endpoint_auth_method = 'none';
      }
  
-+    // Allow the local HTTP issuer when explicitly enabled.
++    // `openid-client` rejects plaintext issuers by default. The local-only
++    // Authentik demo endpoint uses HTTP, so this requires an explicit opt-in.
 +    const allowInsecureHttp = isEnabled(process.env.OPENID_ALLOW_INSECURE_HTTP);
 +
+     /** @type {Configuration} */
      openidConfig = await client.discovery(
        new URL(process.env.OPENID_ISSUER),
 @@ -937,6 +953,7 @@ async function setupOpenId() {

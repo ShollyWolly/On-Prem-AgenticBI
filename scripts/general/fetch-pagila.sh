@@ -49,7 +49,7 @@ done
 data_len="$(wc -c < "${DEST}/20-pagila-data.sql" | tr -d ' ')"
 if [ "$data_len" != "3310905" ]; then
   warn "NOTE: 20-pagila-data.sql is ${data_len} bytes; the design was measured against 3310905."
-  warn "      Upstream may have changed - re-check the row counts in scripts/verify.sh (V3)."
+  warn "      Upstream may have changed; re-check the seeded row counts before a demonstration."
 fi
 
 [ "$fail" -eq 0 ] || die 'CR bytes detected in a vendored .sql file.'
