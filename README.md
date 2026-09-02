@@ -19,6 +19,9 @@ user. `cube-mcp` verifies that token against Authentik's JWKS, requires the
 Cube JWT. Cube applies the matching view policy and masks PII before returning a
 result. Unknown or ambiguously grouped users are denied.
 
+LibreChat's `cube_sql` MCP connection validates the same OAuth token and sends
+the same short-lived signed Cube context through a Cube SQL connection.
+
 Superset is deliberately different: its dashboard and built-in MCP service use
 one fixed Cube SQL identity. Superset users do not receive an individual Cube
 security context.
@@ -98,12 +101,12 @@ flowchart TB
 | Identity | OpenLDAP, Authentik | LDAP is the source of users and groups; Authentik provides LibreChat OIDC and Cube MCP OAuth. |
 | BI | PostgreSQL, Cube, Superset | Pagila data, governed semantic views, and the dashboard. |
 | Chat | LibreChat, MongoDB, Meilisearch, RAG API | Chat, per-user agents, conversation search, and attached-document search. |
-| Agent tools | `cube-mcp`, `superset-mcp` | Governed Cube queries and read-only dashboard inspection. |
+| Agent tools | `cube-mcp`, `cube-sql-mcp`, `superset-mcp` | Governed Cube REST and Semantic SQL queries plus read-only dashboard inspection. |
 | Optional sandbox | CodeAPI, NsJail sandbox, Redis, Garage | Python calculations, plots, and file delivery. |
 
 `cube-mcp` is the only service allowed to call Cube's REST API. Cube REST is not
-published on the host. The Cube PostgreSQL endpoint remains available for local
-operator checks and the shared Superset connection only.
+published on the host. `cube-sql-mcp` is the only agent service allowed to call
+Cube's PostgreSQL endpoint, which also remains available for Superset and local checks.
 
 ## Authentication and authorization flow
 
@@ -201,6 +204,7 @@ Host ports come from `.env`; the defaults are shown below.
 | Authentik | `http://localhost:9000` | OIDC provider and LDAP synchronization. |
 | Superset | `http://localhost:8088/superset/dashboard/agentic-bi/` | Direct LDAP login; fixed Cube identity. |
 | Cube MCP | `http://localhost:8003/mcp` | OAuth-protected MCP endpoint. |
+| Cube SQL MCP | `http://localhost:8004/mcp` | OAuth-protected Cube Semantic SQL endpoint. |
 | Superset MCP | `http://localhost:5008/mcp` | Internal agent integration; read-only `mcp_reader` service identity. |
 | RAG API | `http://localhost:8000/docs` | Local API reference, not a user UI. |
 
@@ -221,6 +225,7 @@ Cube security is enforced by `config/cube/cube.js` and the view definitions in
 - Keep `CUBE_MODE=demo`. `dev` disables Cube member-level access control.
 - Query only semantic views and members returned by `get_schema`; raw SQL is not
   available through `cube-mcp`.
+- `cube-sql-mcp` accepts only read-only Semantic SQL against visible views; agents should use an explicit `LIMIT` for exploratory or row-level queries.
 
 The Superset exception is intentional. Superset is useful for a shared governed
 dashboard, but it does not pass each dashboard user's identity into Cube.

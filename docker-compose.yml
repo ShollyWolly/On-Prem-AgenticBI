@@ -112,8 +112,8 @@ services:
       postgres:
         condition: service_healthy
     env_file:
-      - ./config/env/cube.common.env
-      - ./config/env/cube.${CUBE_MODE:-demo}.env
+      - ./config/cube/env/common.env
+      - ./config/cube/env/${CUBE_MODE:-demo}.env
     environment:
       CUBEJS_DB_TYPE: postgres
       CUBEJS_DB_HOST: postgres
@@ -339,6 +339,35 @@ services:
     networks: [abi]
     restart: unless-stopped
 
+  cube-sql-mcp:
+    build:
+      context: ./docker/cube-sql-mcp
+    image: abi/cube-sql-mcp:local
+    container_name: abi-cube-sql-mcp
+    profiles: [chat]
+    depends_on:
+      cube:
+        condition: service_healthy
+      authentik-server:
+        condition: service_healthy
+    environment:
+      CUBE_SQL_HOST: cube
+      CUBE_SQL_PORT: "15432"
+      CUBE_SQL_DATABASE: cube
+      CUBE_API_URL: http://cube:4000/cubejs-api/v1
+      CUBEJS_SQL_PASSWORD: ${CUBEJS_SQL_PASSWORD:?}
+      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:?}
+      AUTHENTIK_CUBE_ISSUER: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/cube-mcp/
+      AUTHENTIK_CUBE_JWKS_URL: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/cube-mcp/jwks/
+      CUBE_SQL_MCP_PUBLIC_URL: http://cube-sql-mcp:8000
+    extra_hosts:
+      - "authentik.localhost:host-gateway"
+    expose: ["8000"]
+    ports:
+      - "${CUBE_SQL_MCP_HOST_PORT:-8004}:8000"
+    networks: [abi]
+    restart: unless-stopped
+
   mongodb:
     image: mongo:8.0.20
     container_name: abi-mongodb
@@ -410,6 +439,8 @@ services:
       meilisearch:
         condition: service_healthy
       cube-mcp:
+        condition: service_started
+      cube-sql-mcp:
         condition: service_started
       rag-api:
         condition: service_healthy

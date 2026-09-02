@@ -33,6 +33,12 @@ bash ./scripts/deployment/down.sh --volumes
 services and runs safe initializers, but does not generate secrets, vendor
 sources, build images, or compile sandbox packages.
 
+## Tests
+
+```bash
+bash ./scripts/tests/verify-cube-mcp-parity.sh
+```
+
 ## Service recovery
 
 | Service | Canonical command | Use |

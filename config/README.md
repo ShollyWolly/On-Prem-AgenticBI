@@ -6,8 +6,7 @@ instructions belong in [`../docker/`](../docker/).
 | Directory | Consumers | Purpose |
 |---|---|---|
 | `authentik/` | Authentik server and worker | LDAP source plus LibreChat OIDC and Cube MCP OAuth providers. |
-| `cube/` | Cube | Semantic cubes and views plus request security-context handling. |
-| `env/` | Cube | Common and `CUBE_MODE`-specific environment settings. |
+| `cube/` | Cube | Semantic cubes, views, request security-context handling, and mode-specific environment settings. |
 | `garage/` | Garage | Object-storage daemon configuration. |
 | `librechat/` | LibreChat | MCP definitions, OAuth client configuration, and managed-agent instructions. |
 | `postgres/` | PostgreSQL | Pagila seed, grants, and date-shift initialization. |

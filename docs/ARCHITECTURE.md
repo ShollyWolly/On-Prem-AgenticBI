@@ -12,7 +12,7 @@ intended to be reachable from the internet.
 | Profile | Services | Purpose |
 |---|---|---|
 | default | OpenLDAP, PostgreSQL, Cube, Superset | Directory, warehouse, semantic layer, and dashboard. |
-| `chat` | Authentik, Cube MCP, LibreChat, MongoDB, Meilisearch, RAG API, Superset MCP | OIDC login, agents, document/chat search, and MCP tools. |
+| `chat` | Authentik, Cube MCP, Cube SQL MCP, LibreChat, MongoDB, Meilisearch, RAG API, Superset MCP | OIDC login, agents, document/chat search, and MCP tools. |
 | `sandbox` | CodeAPI, sandbox, Redis, Garage, file and tool-call services | Optional Python execution and output delivery. |
 | `cubestore` | CubeStore | Optional Cube pre-aggregations. |
 
@@ -71,9 +71,12 @@ records can choose the Cube role.
 the shared Superset identity and operator checks. It is not consulted for the
 OAuth REST path.
 
-Cube REST on port 4000 is private to the Compose network. The gateway is the only
-chat service with `CUBEJS_API_SECRET`. The host-visible Cube PostgreSQL endpoint
-is retained for Superset and operator verification, not LibreChat agents.
+`cube-sql-mcp` validates the OAuth claims, then uses the same 60-second signed
+Cube context as its per-connection SQL password.
+
+Cube REST on port 4000 is private to the Compose network. The two Cube MCP
+gateways are the only chat services with `CUBEJS_API_SECRET`. The host-visible
+Cube PostgreSQL endpoint is used by Superset, operator verification, and the SQL MCP only.
 
 ### Semantic model
 

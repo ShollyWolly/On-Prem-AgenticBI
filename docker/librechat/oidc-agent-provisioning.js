@@ -40,6 +40,29 @@ const agentSpecs = () => [
     ],
   },
   {
+    name: 'Agentic BI SQL Analyst',
+    description: 'Governed DVD-rental BI analysis through Cube Semantic SQL.',
+    instructions: readInstructions('agent-sql-instructions.md'),
+    tools: [
+      'get_schema_mcp_cube_sql',
+      'query_sql_mcp_cube_sql',
+      'whoami_mcp_cube_sql',
+      'execute_code',
+      'file_search',
+    ],
+    tool_options: {
+      get_schema_mcp_cube_sql: { allowed_callers: ['direct', 'code_execution'] },
+      query_sql_mcp_cube_sql: { allowed_callers: ['direct', 'code_execution'] },
+      whoami_mcp_cube_sql: { allowed_callers: ['direct', 'code_execution'] },
+    },
+    conversation_starters: [
+      'Which film category earned the most revenue?',
+      'Show monthly revenue by store for the last 12 months.',
+      'Compare each film\'s list price against what it actually earned.',
+      'Who are the top 10 customers by lifetime value?',
+    ],
+  },
+  {
     name: 'Dashboard Reviewer',
     description: 'Reads and critiques existing Superset dashboards through its read-only service account.',
     instructions: readInstructions('agent-dashboard-instructions.md'),

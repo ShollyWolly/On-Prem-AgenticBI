@@ -4,6 +4,7 @@ cache: true
 mcpSettings:
   allowedAddresses:
     - "cube-mcp:8000"
+    - "cube-sql-mcp:8000"
     - "superset-mcp:5008"
     - "authentik.localhost:9000"
 
@@ -32,6 +33,31 @@ mcpServers:
       Governance is server-side. The authenticated user's LDAP group controls the
       result. Some columns are masked for analysts; do not try to reconstruct,
       infer, or bypass masked values.
+
+  cube_sql:
+    type: streamable-http
+    url: "http://cube-sql-mcp:8000/mcp"
+    oauth:
+      client_id: "cube-mcp"
+      authorization_url: "http://authentik.localhost:9000/application/o/authorize/"
+      token_url: "http://authentik.localhost:9000/application/o/token/"
+      scope: "openid profile email cube.read"
+    timeout: 120000
+    initTimeout: 45000
+    chatMenu: false
+    serverInstructions: |
+      You are querying the governed Cube.dev semantic layer through Semantic SQL.
+      Authenticate to this MCP when LibreChat asks; Authentik SSO makes the
+      connection user-specific.
+
+      First call get_schema, then use query_sql with one read-only Semantic SQL
+      query. Query only the views returned by get_schema and use Cube's MEASURE()
+      function for metrics. Prefer an explicit LIMIT for exploratory or row-level
+      queries because the server does not add one. Never use warehouse tables,
+      credentials, roles, or identity arguments. The server enforces governance.
+
+      Some columns are masked for analysts; do not try to reconstruct, infer, or
+      bypass masked values.
 
   superset:
     type: streamable-http

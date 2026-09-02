@@ -91,6 +91,9 @@ if [ "$SKIP_CHAT" -eq 0 ]; then
   wait_healthy abi-librechat 300 || die "librechat did not become healthy in 300s"
   wait_http_status "http://localhost:$(env_get CUBE_MCP_HOST_PORT || echo 8003)/mcp" 401 120 || \
     die "Cube MCP did not expose its OAuth-protected endpoint in 120s"
+  cube_sql_mcp_port="$(env_get CUBE_SQL_MCP_HOST_PORT || true)"
+  wait_http_status "http://localhost:${cube_sql_mcp_port:-8004}/mcp" 401 120 || \
+    die "Cube SQL MCP did not expose its OAuth-protected endpoint in 120s"
   wait_healthy abi-superset-mcp 300 || die "superset MCP did not become healthy in 300s"
 
   bash ./scripts/services/librechat/migrate-oidc.sh

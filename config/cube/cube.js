@@ -1,7 +1,8 @@
 
 const DENIED = 'denied';
+const jwt = require('jsonwebtoken');
 
-// SQL clients have fixed identities from configuration, while unknown users are denied.
+// Static SQL clients use configured identities, while the SQL MCP supplies a signed user context.
 const ROLE_MAP = JSON.parse(process.env.CUBE_USER_ROLE_MAP || '{}');
 const REST_ROLES = new Set(['analyst', 'admin']);
 
@@ -24,11 +25,31 @@ function identityFor(username) {
   return { user: email, role: entry.role, groups: [entry.role] };
 }
 
+function identityFromSqlToken(username, password) {
+  try {
+    const payload = jwt.verify(password, process.env.CUBEJS_API_SECRET, { algorithms: ['HS256'] });
+    const identity = payload.securityContext;
+    const email = String(username || '').trim().toLowerCase();
+    const permitted = identity && identity.user === email && typeof identity.subject === 'string' &&
+      REST_ROLES.has(identity.role) && Array.isArray(identity.groups) &&
+      identity.groups.length === 1 && identity.groups[0] === identity.role;
+    return permitted ? identity : null;
+  } catch {
+    return null;
+  }
+}
+
+function checkSqlAuth(req, username, password) {
+  if (password === process.env.CUBEJS_SQL_PASSWORD) {
+    return { password: process.env.CUBEJS_SQL_PASSWORD, securityContext: identityFor(username) };
+  }
+  const identity = identityFromSqlToken(username, password);
+  if (!identity) throw new Error('Incorrect user name or password');
+  return { password, securityContext: identity };
+}
+
 module.exports = {
-  checkSqlAuth: (req, username, password) => ({
-    password: process.env.CUBEJS_SQL_PASSWORD,
-    securityContext: identityFor(username),
-  }),
+  checkSqlAuth,
 
   // Separate Cube cache namespaces by role so cached data never crosses roles.
   contextToAppId: ({ securityContext }) =>
