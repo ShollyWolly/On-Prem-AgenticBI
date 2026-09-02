@@ -42,12 +42,32 @@ agents.find({ tools: { $in: oldTools } }).forEach((agent) => {
   changed += result.modifiedCount;
 });
 print(`RESULT changed=${changed}`);
+
+const warehouseTools = [
+  'get_raw_schema_mcp_warehouse', 'query_raw_sql_mcp_warehouse',
+  'whoami_mcp_warehouse',
+];
+agents.find({ tools: { $in: warehouseTools } }).forEach((agent) => {
+  const retained = (agent.tools || []).filter((tool) => !warehouseTools.includes(tool));
+  const tools = [...new Set([...retained, ...replacement])];
+  const tool_options = Object.assign({}, agent.tool_options || {});
+  for (const tool of warehouseTools) delete tool_options[tool];
+  for (const tool of replacement) tool_options[tool] = { allowed_callers: ['direct', 'code_execution'] };
+  const servers = (agent.mcpServerNames || []).filter((name) => name !== 'warehouse');
+  if (!servers.includes('cube')) servers.push('cube');
+  const result = agents.updateOne({ _id: agent._id }, {
+    $set: { tools, tool_options, mcpServerNames: servers, instructions: text, updatedAt: new Date() },
+  });
+  print(`MIGRATED_WAREHOUSE_TO_CUBE ${agent.id} (${agent.name}) matched=${result.matchedCount}`);
+  changed += result.modifiedCount;
+});
+print(`WAREHOUSE_REMOVAL changed=${changed}`);
 JSEOF
 
 out="$(dexec -i -e AGENT_INSTRUCTIONS_B64="$INSTRUCTIONS_B64" abi-mongodb mongosh --quiet <<< "$JS" 2>&1)" || {
   err "$out"; die "mongosh migration failed"
 }
 printf '%s\n' "$out" | sed 's/^/  /'
-printf '%s' "$out" | grep -q 'RESULT changed=' || die "migration did not report a result"
+printf '%s' "$out" | grep -q 'WAREHOUSE_REMOVAL changed=' || die "migration did not report a result"
 
 info "Existing users are linked to Authentik by e-mail at their first OIDC login; their Mongo _id is preserved."

@@ -30,8 +30,11 @@ bash ./scripts/deployment/down.sh --volumes
 ```
 
 `up.sh` expects the checkout to have been bootstrapped already: it starts
-services and runs safe initializers, but does not generate secrets, vendor
-sources, build images, or compile sandbox packages.
+services and runs safe initializers, but does not fetch sources, build images,
+or compile sandbox packages.
+
+`.env` holds only Compose-wide ports and `CUBE_MODE`; ignored service-local
+environment files are created from `config/**/.env.example` by `gen-secrets.sh`.
 
 ## Tests
 

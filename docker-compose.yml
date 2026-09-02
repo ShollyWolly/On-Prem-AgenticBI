@@ -6,24 +6,8 @@ x-superset-image: &superset-image
     context: ./docker/superset
   image: abi/superset:6.1.0-psycopg2
 
-x-superset-env: &superset-env
-  SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?generate once with scripts/general/gen-secrets.sh, then never rotate}
-  SUPERSET_METADATA_URI: postgresql+psycopg2://${SUPERSET_DB_USER:-superset}:${SUPERSET_DB_PASSWORD:?}@postgres:5432/${SUPERSET_DB_NAME:-superset}
-  SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
-  SUPERSET_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?}
-  SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@demo.local}
-  CUBE_SQL_USER: ${SUPERSET_CUBE_SQL_USER:-analyst@demo.local}
-  CUBE_SQL_PASSWORD: ${CUBEJS_SQL_PASSWORD:?}
-  SUPERSET_ENV: production
-  SUPERSET_LOAD_EXAMPLES: "no"
-  PYTHONUNBUFFERED: "1"
-  GUNICORN_TIMEOUT: "180"
-  SUPERSET_MCP_READER_PASSWORD: ${SUPERSET_MCP_READER_PASSWORD:?}
-  SUPERSET_AUTH: ${SUPERSET_AUTH:-ldap}
-  LDAP_URL: ldap://openldap:389
-  LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=demo,dc=local}
-  LDAP_ADMIN_DN: ${LDAP_ADMIN_DN:-cn=admin,dc=demo,dc=local}
-  LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD:?}
+x-superset-env-file: &superset-env-file
+  - ./config/superset/.env
 
 x-superset-volumes: &superset-volumes
   - ./config/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
@@ -38,11 +22,9 @@ services:
   openldap:
     image: osixia/openldap:1.5.0
     container_name: abi-openldap
+    env_file:
+      - ./config/ldap/.env
     environment:
-      LDAP_ORGANISATION: ${LDAP_ORGANISATION:-Demo Corp}
-      LDAP_DOMAIN: ${LDAP_DOMAIN:-demo.local}
-      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD:?}
-      LDAP_CONFIG_PASSWORD: ${LDAP_ADMIN_PASSWORD:?}
       LDAP_TLS: "false"
       LDAP_REMOVE_CONFIG_AFTER_SETUP: "true"
     volumes:
@@ -70,21 +52,12 @@ services:
   postgres:
     image: pgvector/pgvector:0.8.1-pg17-bookworm
     container_name: abi-postgres
+    env_file:
+      - ./config/postgres/.env
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
-      POSTGRES_DB: ${POSTGRES_DB:-pagila}
       TZ: UTC
       PGTZ: UTC
       LANG: C.UTF-8
-      SUPERSET_DB_NAME: ${SUPERSET_DB_NAME:-superset}
-      SUPERSET_DB_USER: ${SUPERSET_DB_USER:-superset}
-      SUPERSET_DB_PASSWORD: ${SUPERSET_DB_PASSWORD:?}
-      CUBE_DB_USER: ${CUBE_DB_USER:-cube_ro}
-      CUBE_DB_PASSWORD: ${CUBE_DB_PASSWORD:?}
-      VECTOR_DB_NAME: ${VECTOR_DB_NAME:-vectordb}
-      VECTOR_DB_USER: ${VECTOR_DB_USER:-vectoruser}
-      VECTOR_DB_PASSWORD: ${VECTOR_DB_PASSWORD:?}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./config/postgres/initdb.d:/docker-entrypoint-initdb.d:ro
@@ -114,17 +87,11 @@ services:
     env_file:
       - ./config/cube/env/common.env
       - ./config/cube/env/${CUBE_MODE:-demo}.env
+      - ./config/cube/env/.env
     environment:
       CUBEJS_DB_TYPE: postgres
       CUBEJS_DB_HOST: postgres
       CUBEJS_DB_PORT: "5432"
-      CUBEJS_DB_NAME: ${POSTGRES_DB:-pagila}
-      CUBEJS_DB_USER: ${CUBE_DB_USER:-cube_ro}
-      CUBEJS_DB_PASS: ${CUBE_DB_PASSWORD:?}
-      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:?}
-      CUBEJS_SQL_USER: ${CUBEJS_SQL_USER:-cube}
-      CUBEJS_SQL_PASSWORD: ${CUBEJS_SQL_PASSWORD:?}
-      CUBE_USER_ROLE_MAP: ${CUBE_USER_ROLE_MAP:?}
     volumes:
       - ./config/cube/model:/cube/conf/model:ro
       - ./config/cube/cube.js:/cube/conf/cube.js:ro
@@ -170,7 +137,7 @@ services:
         condition: service_healthy
       openldap:
         condition: service_healthy
-    environment: *superset-env
+    env_file: *superset-env-file
     volumes: *superset-volumes
     entrypoint: ["/bin/bash", "-euo", "pipefail", "-c"]
     command:
@@ -219,10 +186,8 @@ services:
     image: postgres:16.9-alpine
     container_name: abi-authentik-postgresql
     profiles: [chat]
-    environment:
-      POSTGRES_DB: authentik
-      POSTGRES_USER: authentik
-      POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD:?}
+    env_file:
+      - ./config/authentik/postgres.env
     volumes:
       - authentik_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -260,20 +225,13 @@ services:
         condition: service_healthy
       openldap:
         condition: service_healthy
+    env_file: &authentik-env-file
+      - ./config/authentik/.env
     environment: &authentik-env
-      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?}
       AUTHENTIK_REDIS__HOST: authentik-redis
       AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
       AUTHENTIK_POSTGRESQL__NAME: authentik
       AUTHENTIK_POSTGRESQL__USER: authentik
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD:?}
-      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL:-admin@demo.local}
-      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:?}
-      AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN:?}
-      AUTHENTIK_LIBRECHAT_CLIENT_SECRET: ${AUTHENTIK_LIBRECHAT_CLIENT_SECRET:?}
-      LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=demo,dc=local}
-      LDAP_ADMIN_DN: ${LDAP_ADMIN_DN:-cn=admin,dc=demo,dc=local}
-      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD:?}
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
       AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
     volumes:
@@ -305,6 +263,7 @@ services:
     depends_on:
       authentik-server:
         condition: service_started
+    env_file: *authentik-env-file
     environment: *authentik-env
     volumes:
       - ./config/authentik:/blueprints/agentic-bi:ro
@@ -325,9 +284,10 @@ services:
         condition: service_healthy
       authentik-server:
         condition: service_healthy
+    env_file:
+      - ./config/cube-mcp/.env
     environment:
       CUBE_API_URL: http://cube:4000/cubejs-api/v1
-      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:?}
       AUTHENTIK_CUBE_ISSUER: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/cube-mcp/
       AUTHENTIK_CUBE_JWKS_URL: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/cube-mcp/jwks/
       CUBE_MCP_PUBLIC_URL: http://cube-mcp:8000
@@ -350,13 +310,13 @@ services:
         condition: service_healthy
       authentik-server:
         condition: service_healthy
+    env_file:
+      - ./config/cube-sql-mcp/.env
     environment:
       CUBE_SQL_HOST: cube
       CUBE_SQL_PORT: "15432"
       CUBE_SQL_DATABASE: cube
       CUBE_API_URL: http://cube:4000/cubejs-api/v1
-      CUBEJS_SQL_PASSWORD: ${CUBEJS_SQL_PASSWORD:?}
-      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:?}
       AUTHENTIK_CUBE_ISSUER: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/cube-mcp/
       AUTHENTIK_CUBE_JWKS_URL: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/cube-mcp/jwks/
       CUBE_SQL_MCP_PUBLIC_URL: http://cube-sql-mcp:8000
@@ -394,19 +354,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    env_file:
+      - ./config/rag-api/.env
     environment:
       RAG_PORT: "8000"
       RAG_HOST: 0.0.0.0
       DB_HOST: postgres
       DB_PORT: "5432"
-      POSTGRES_DB: ${VECTOR_DB_NAME:-vectordb}
-      POSTGRES_USER: ${VECTOR_DB_USER:-vectoruser}
-      POSTGRES_PASSWORD: ${VECTOR_DB_PASSWORD:?}
       EMBEDDINGS_PROVIDER: huggingface
       EMBEDDINGS_MODEL: sentence-transformers/all-MiniLM-L6-v2
       HF_HOME: /app/hf
       SENTENCE_TRANSFORMERS_HOME: /app/hf
-      JWT_SECRET: ${JWT_SECRET:?}
     volumes:
       - ragmodels:/app/hf
     ports:
@@ -447,19 +405,11 @@ services:
       authentik-server:
         condition: service_healthy
     env_file:
-      - .env
+      - ./config/librechat/.env
     environment:
-      MONGO_URI: mongodb://mongodb:27017/LibreChat
-      CONFIG_PATH: /app/librechat.yaml
       RAG_API_URL: http://rag-api:8000
-      MEILI_HOST: http://meilisearch:7700
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?}
-
-      OPENID_CLIENT_ID: ${AUTHENTIK_LIBRECHAT_CLIENT_ID:-librechat}
-      OPENID_CLIENT_SECRET: ${AUTHENTIK_LIBRECHAT_CLIENT_SECRET:?}
+      NODE_OPTIONS: --dns-result-order=ipv4first
       OPENID_ISSUER: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/librechat/
-      OPENID_ALLOW_INSECURE_HTTP: ${OPENID_ALLOW_INSECURE_HTTP:-true}
-      OPENID_SESSION_SECRET: ${OPENID_SESSION_SECRET:?}
       OPENID_SCOPE: "openid profile email offline_access"
       OPENID_CALLBACK_URL: /oauth/openid/callback
       OPENID_EMAIL_CLAIM: email
@@ -505,9 +455,8 @@ services:
     image: getmeili/meilisearch:v1.35.1
     container_name: abi-meilisearch
     profiles: [chat]
-    environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?}
-      MEILI_NO_ANALYTICS: "true"
+    env_file:
+      - ./config/meilisearch/.env
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
@@ -528,7 +477,7 @@ services:
         condition: service_healthy
       superset:
         condition: service_healthy
-    environment: *superset-env
+    env_file: *superset-env-file
     volumes: *superset-volumes
     entrypoint: ["/bin/bash", "-euo", "pipefail", "-c"]
     command:
@@ -556,9 +505,8 @@ services:
     image: dxflrs/garage:v2.3.0
     container_name: abi-garage
     profiles: [sandbox]
-    environment:
-      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?}
-      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:?}
+    env_file:
+      - ./config/sandbox/.env
     volumes:
       - ./config/garage/garage.toml:/etc/garage.toml:ro
       - garage_meta:/var/lib/garage/meta
@@ -579,9 +527,11 @@ services:
     image: redis:7-alpine
     container_name: abi-codeapi-redis
     profiles: [sandbox]
-    command: redis-server --requirepass ${CODEAPI_REDIS_PASSWORD:?}
+    env_file:
+      - ./config/sandbox/.env
+    command: ["/bin/sh", "-c", "exec redis-server --requirepass \"$$CODEAPI_REDIS_PASSWORD\""]
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${CODEAPI_REDIS_PASSWORD}", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$CODEAPI_REDIS_PASSWORD\" ping"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -601,18 +551,12 @@ services:
         condition: service_healthy
       codeapi-redis:
         condition: service_healthy
+    env_file:
+      - ./config/sandbox/.env
     environment:
-      MINIO_BUCKET: ${MINIO_BUCKET:-codeapi-files}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-garage}
-      MINIO_PORT: ${MINIO_PORT:-3900}
-      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-codeapi}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?}
       FILE_SERVER_PORT: "3000"
       REDIS_HOST: codeapi-redis
       REDIS_PORT: "6379"
-      REDIS_PASSWORD: ${CODEAPI_REDIS_PASSWORD:?}
-      CODEAPI_INTERNAL_SERVICE_TOKEN: ${CODEAPI_INTERNAL_SERVICE_TOKEN:?}
     expose:
       - "3000"
     networks: [abi]
@@ -629,14 +573,14 @@ services:
     depends_on:
       codeapi-redis:
         condition: service_healthy
+    env_file:
+      - ./config/sandbox/.env
     environment:
       TOOL_CALL_SERVER_PORT: "3033"
       TOOL_CALL_REQUEST_TIMEOUT: "300000"
       TOOL_CALL_SESSION_EXPIRY: "600"
       REDIS_HOST: codeapi-redis
       REDIS_PORT: "6379"
-      REDIS_PASSWORD: ${CODEAPI_REDIS_PASSWORD:?}
-      CODEAPI_INTERNAL_SERVICE_TOKEN: ${CODEAPI_INTERNAL_SERVICE_TOKEN:?}
     expose:
       - "3033"
     networks: [abi]
@@ -673,6 +617,8 @@ services:
       - MKNOD
     volumes:
       - codeapi_pkgs:/pkgs:ro
+    env_file:
+      - ./config/sandbox/.env
     environment:
       KVM_ENABLED: "false"
       SANDBOX_USE_CGROUPV2: "false"
@@ -691,7 +637,6 @@ services:
       SANDBOX_ALLOWED_LOCAL_NETWORK_PORT: "3033"
       SANDBOX_FORWARD_TARGET: codeapi-toolcall:3033
       FILE_SERVER_URL: http://codeapi-files:3000
-      CODEAPI_INTERNAL_SERVICE_TOKEN: ${CODEAPI_INTERNAL_SERVICE_TOKEN:?}
     depends_on:
       codeapi-toolcall:
         condition: service_started
@@ -725,21 +670,20 @@ services:
         condition: service_started
       codeapi-toolcall:
         condition: service_started
+    env_file:
+      - ./config/sandbox/.env
     environment:
       LOCAL_MODE: "true"
       PORT: "3112"
       SANDBOX_ENDPOINT: http://codeapi-sandbox:2000/api/v2
       FILE_SERVER_URL: http://codeapi-files:3000
       TOOL_CALL_SERVER_URL: http://codeapi-toolcall:3033
-      CODEAPI_INTERNAL_SERVICE_TOKEN: ${CODEAPI_INTERNAL_SERVICE_TOKEN:?}
       REDIS_HOST: codeapi-redis
       REDIS_PORT: "6379"
-      REDIS_PASSWORD: ${CODEAPI_REDIS_PASSWORD:?}
       PYTHON_CONCURRENCY: "1"
       OTHER_CONCURRENCY: "8"
       JOB_WINDOW: "1000"
       JOB_TIMEOUT: "300000"
-      PTC_MODE: ${PTC_MODE:-replay}
     ports:
       - "${CODEAPI_HOST_PORT:-3112}:3112"
     healthcheck:

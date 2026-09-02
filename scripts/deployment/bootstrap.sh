@@ -54,7 +54,7 @@ step "3/8  Generating secrets"
 foundry_key="$(env_get AZURE_FOUNDRY_API_KEY || true)"
 if [ -z "$foundry_key" ] || [[ "$foundry_key" == *CHANGE_ME* ]]; then
   warn ""
-  warn "  ACTION REQUIRED: set AZURE_FOUNDRY_API_KEY in .env, then re-run."
+  warn "  ACTION REQUIRED: set AZURE_FOUNDRY_API_KEY in config/librechat/.env, then re-run."
   warn "  Verify the Azure Foundry endpoint before enabling the chat profile."
   if [ "$SKIP_CHAT" -eq 0 ]; then
     warn "  (continuing with the data + BI tier only)"
@@ -69,6 +69,7 @@ step "5/8  Userstore + data + BI tier (openldap -> postgres -> cube -> superset)
 docker compose up -d
 
 ./scripts/services/ldap/init.sh
+./scripts/services/postgres/remove-warehouse-mcp-role.sh
 
 if [ "$SKIP_SANDBOX" -eq 0 ]; then
   step "6/8  Sandbox runtime packages (compiles CPython; 20-45 min, ONCE)"
@@ -96,6 +97,7 @@ if [ "$SKIP_CHAT" -eq 0 ]; then
     die "Cube SQL MCP did not expose its OAuth-protected endpoint in 120s"
   wait_healthy abi-superset-mcp 300 || die "superset MCP did not become healthy in 300s"
 
+  bash ./scripts/services/authentik/remove-warehouse-mcp.sh
   bash ./scripts/services/librechat/migrate-oidc.sh
 else
   step "7/8  Agent tier SKIPPED"
@@ -107,7 +109,7 @@ cat <<EOF
 
   Authentik SSO opens LibreChat with the same LDAP credentials used by Superset.
   LibreChat redirects to http://authentik.localhost:9000; log in with the full
-  e-mail and matching DEMO_*_PASSWORD from .env.
+  e-mail and matching DEMO_*_PASSWORD from config/ldap/.env.
 
   Superset dashboard : http://localhost:8088/superset/dashboard/agentic-bi/
                        admin@demo.local / DEMO_ADMIN_PASSWORD

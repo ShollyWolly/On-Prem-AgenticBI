@@ -74,6 +74,10 @@ OAuth REST path.
 `cube-sql-mcp` validates the OAuth claims, then uses the same 60-second signed
 Cube context as its per-connection SQL password.
 
+Cube exposes admin-only `raw_*` source-table views to the LDAP `admins` group;
+the analyst policy exposes only curated views and applies PII masks.
+The staff raw view excludes password and image bytes even for administrators.
+
 Cube REST on port 4000 is private to the Compose network. The two Cube MCP
 gateways are the only chat services with `CUBEJS_API_SECRET`. The host-visible
 Cube PostgreSQL endpoint is used by Superset, operator verification, and the SQL MCP only.
@@ -82,6 +86,8 @@ Cube PostgreSQL endpoint is used by Superset, operator verification, and the SQL
 
 `config/cube/model/` contains cubes and views. Agents query only the views and
 members returned from `get_schema`:
+
+Cube definitions are the manually maintained single source of truth for semantic names, descriptions, measures, and access policies.
 
 | View | Use |
 |---|---|
@@ -92,8 +98,8 @@ members returned from `get_schema`:
 | `store_performance` | Store-level operations. |
 
 Analyst policies mask the configured customer and staff PII. Admin policies allow
-the configured members. The model defaults to `denied`; no view policy grants
-that group access.
+the configured members and the `raw_*` source-table views. The model defaults to
+`denied`; no view policy grants that group access.
 
 Keep `CUBE_MODE=demo` for any shared demonstration. `CUBE_MODE=dev` enables
 Cube development mode and disables member-level access control.

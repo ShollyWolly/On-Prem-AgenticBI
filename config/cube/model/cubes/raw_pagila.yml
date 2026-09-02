@@ -1,0 +1,239 @@
+cubes:
+  - name: raw_source_actor
+    sql_table: public.actor
+    title: Raw Actor
+    description: "Pagila actor source table for administrators."
+    public: false
+    dimensions:
+      - { name: actor_id, sql: actor_id, type: number, primary_key: true }
+      - { name: first_name, sql: first_name, type: string }
+      - { name: last_name, sql: last_name, type: string }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_address
+    sql_table: public.address
+    title: Raw Address
+    description: "Pagila address source table for administrators."
+    public: false
+    dimensions:
+      - { name: address_id, sql: address_id, type: number, primary_key: true }
+      - { name: address, sql: address, type: string }
+      - { name: address2, sql: address2, type: string }
+      - { name: district, sql: district, type: string }
+      - { name: city_id, sql: city_id, type: number }
+      - { name: postal_code, sql: postal_code, type: string }
+      - { name: phone, sql: phone, type: string }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_category
+    sql_table: public.category
+    title: Raw Category
+    description: "Pagila category source table for administrators."
+    public: false
+    dimensions:
+      - { name: category_id, sql: category_id, type: number, primary_key: true }
+      - { name: name, sql: name, type: string }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_city
+    sql_table: public.city
+    title: Raw City
+    description: "Pagila city source table for administrators."
+    public: false
+    dimensions:
+      - { name: city_id, sql: city_id, type: number, primary_key: true }
+      - { name: city, sql: city, type: string }
+      - { name: country_id, sql: country_id, type: number }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_country
+    sql_table: public.country
+    title: Raw Country
+    description: "Pagila country source table for administrators."
+    public: false
+    dimensions:
+      - { name: country_id, sql: country_id, type: number, primary_key: true }
+      - { name: country, sql: country, type: string }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_customer
+    sql_table: public.customer
+    title: Raw Customer
+    description: "Pagila customer source table for administrators."
+    public: false
+    dimensions:
+      - { name: customer_id, sql: customer_id, type: number, primary_key: true }
+      - { name: store_id, sql: store_id, type: number }
+      - { name: first_name, sql: first_name, type: string }
+      - { name: last_name, sql: last_name, type: string }
+      - { name: email, sql: email, type: string }
+      - { name: address_id, sql: address_id, type: number }
+      - { name: activebool, sql: activebool, type: boolean }
+      - { name: create_date, sql: create_date, type: time }
+      - { name: last_update, sql: last_update, type: time }
+      - { name: active, sql: active, type: number }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_film
+    sql_table: public.film
+    title: Raw Film
+    description: "Pagila film source table for administrators."
+    public: false
+    dimensions:
+      - { name: film_id, sql: film_id, type: number, primary_key: true }
+      - { name: title, sql: title, type: string }
+      - { name: description, sql: description, type: string }
+      - { name: release_year, sql: release_year, type: number }
+      - { name: language_id, sql: language_id, type: number }
+      - { name: original_language_id, sql: original_language_id, type: number }
+      - { name: rental_duration, sql: rental_duration, type: number }
+      - { name: rental_rate, sql: rental_rate, type: number }
+      - { name: length, sql: length, type: number }
+      - { name: replacement_cost, sql: replacement_cost, type: number }
+      - { name: rating, sql: "{CUBE}.rating::text", type: string }
+      - { name: last_update, sql: last_update, type: time }
+      - { name: special_features, sql: "ARRAY_TO_STRING({CUBE}.special_features, ', ')", type: string }
+      - { name: fulltext, sql: "{CUBE}.fulltext::text", type: string }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_film_actor
+    sql_table: public.film_actor
+    title: Raw Film Actor
+    description: "Pagila film_actor bridge table for administrators."
+    public: false
+    dimensions:
+      - { name: id, sql: "{CUBE}.film_id::text || '-' || {CUBE}.actor_id::text", type: string, primary_key: true }
+      - { name: film_id, sql: film_id, type: number }
+      - { name: actor_id, sql: actor_id, type: number }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_film_category
+    sql_table: public.film_category
+    title: Raw Film Category
+    description: "Pagila film_category bridge table for administrators."
+    public: false
+    dimensions:
+      - { name: id, sql: "{CUBE}.film_id::text || '-' || {CUBE}.category_id::text", type: string, primary_key: true }
+      - { name: film_id, sql: film_id, type: number }
+      - { name: category_id, sql: category_id, type: number }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_inventory
+    sql_table: public.inventory
+    title: Raw Inventory
+    description: "Pagila inventory source table for administrators."
+    public: false
+    dimensions:
+      - { name: inventory_id, sql: inventory_id, type: number, primary_key: true }
+      - { name: film_id, sql: film_id, type: number }
+      - { name: store_id, sql: store_id, type: number }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_language
+    sql_table: public.language
+    title: Raw Language
+    description: "Pagila language source table for administrators."
+    public: false
+    dimensions:
+      - { name: language_id, sql: language_id, type: number, primary_key: true }
+      - { name: name, sql: "TRIM({CUBE}.name)", type: string }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_payment
+    sql_table: public.payment
+    title: Raw Payment
+    description: "Pagila payment source table for administrators."
+    public: false
+    dimensions:
+      - { name: payment_id, sql: payment_id, type: number, primary_key: true }
+      - { name: customer_id, sql: customer_id, type: number }
+      - { name: staff_id, sql: staff_id, type: number }
+      - { name: rental_id, sql: rental_id, type: number }
+      - { name: amount, sql: amount, type: number }
+      - { name: payment_date, sql: payment_date, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+      - { name: total_amount, sql: amount, type: sum, title: Total Amount }
+
+  - name: raw_source_rental
+    sql_table: public.rental
+    title: Raw Rental
+    description: "Pagila rental source table for administrators."
+    public: false
+    dimensions:
+      - { name: rental_id, sql: rental_id, type: number, primary_key: true }
+      - { name: rental_date, sql: rental_date, type: time }
+      - { name: inventory_id, sql: inventory_id, type: number }
+      - { name: customer_id, sql: customer_id, type: number }
+      - { name: return_date, sql: return_date, type: time }
+      - { name: staff_id, sql: staff_id, type: number }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_seed_complete
+    sql_table: public.seed_complete
+    title: Raw Seed Complete
+    description: "Pagila seed status table for administrators."
+    public: false
+    dimensions:
+      - { name: id, sql: id, type: number, primary_key: true }
+      - { name: completed_at, sql: completed_at, type: time }
+      - { name: rentals, sql: rentals, type: number }
+      - { name: payments, sql: payments, type: number }
+      - { name: revenue, sql: revenue, type: number }
+      - { name: max_rental, sql: max_rental, type: time }
+      - { name: max_payment, sql: max_payment, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_staff
+    sql_table: public.staff
+    title: Raw Staff
+    description: "Pagila staff source table for administrators without credentials or image bytes."
+    public: false
+    dimensions:
+      - { name: staff_id, sql: staff_id, type: number, primary_key: true }
+      - { name: first_name, sql: first_name, type: string }
+      - { name: last_name, sql: last_name, type: string }
+      - { name: address_id, sql: address_id, type: number }
+      - { name: email, sql: email, type: string }
+      - { name: store_id, sql: store_id, type: number }
+      - { name: active, sql: active, type: boolean }
+      - { name: username, sql: username, type: string }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }
+
+  - name: raw_source_store
+    sql_table: public.store
+    title: Raw Store
+    description: "Pagila store source table for administrators."
+    public: false
+    dimensions:
+      - { name: store_id, sql: store_id, type: number, primary_key: true }
+      - { name: manager_staff_id, sql: manager_staff_id, type: number }
+      - { name: address_id, sql: address_id, type: number }
+      - { name: last_update, sql: last_update, type: time }
+    measures:
+      - { name: row_count, type: count, title: Rows }

@@ -4,6 +4,19 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
+SERVICE_ENV_FILES=(
+  "${REPO_ROOT}/config/ldap/.env"
+  "${REPO_ROOT}/config/postgres/.env"
+  "${REPO_ROOT}/config/cube/env/.env"
+  "${REPO_ROOT}/config/cube-mcp/.env"
+  "${REPO_ROOT}/config/cube-sql-mcp/.env"
+  "${REPO_ROOT}/config/superset/.env"
+  "${REPO_ROOT}/config/authentik/.env"
+  "${REPO_ROOT}/config/meilisearch/.env"
+  "${REPO_ROOT}/config/rag-api/.env"
+  "${REPO_ROOT}/config/librechat/.env"
+  "${REPO_ROOT}/config/sandbox/.env"
+)
 
 if [ -t 1 ]; then
   C_RESET=$'\033[0m'; C_RED=$'\033[31m'; C_GREEN=$'\033[32m'
@@ -22,15 +35,25 @@ step()  { printf '\n%s=== %s ===%s\n' "$C_CYAN" "$*" "$C_RESET"; }
 die() { err "$*"; exit 1; }
 
 env_get() {
-  local key="$1" file="${2:-$ENV_FILE}"
-  [ -f "$file" ] || return 1
-  sed -n "s/^${key}=//p" "$file" | head -n1
+  local key="$1" file value
+  if [ "$#" -gt 1 ]; then
+    file="$2"
+    [ -f "$file" ] || return 1
+    sed -n "s/^${key}=//p" "$file" | head -n1
+    return 0
+  fi
+  for file in "$ENV_FILE" "${SERVICE_ENV_FILES[@]}"; do
+    [ -f "$file" ] || continue
+    value="$(sed -n "s/^${key}=//p" "$file" | head -n1)"
+    [ -n "$value" ] && printf '%s' "$value" && return 0
+  done
+  return 1
 }
 
 env_require() {
   local key="$1" val
   val="$(env_get "$key" || true)"
-  [ -n "$val" ] || die "$key is missing from .env (run scripts/general/gen-secrets.sh --apply)"
+  [ -n "$val" ] || die "$key is missing from its local environment file (run scripts/general/gen-secrets.sh --apply)"
   printf '%s' "$val"
 }
 

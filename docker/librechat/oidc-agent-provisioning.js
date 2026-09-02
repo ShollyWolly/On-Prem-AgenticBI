@@ -138,10 +138,10 @@ async function provisionOidcAgents(user) {
         tenantId: user.tenantId,
       });
       logger.info(`[oidcAgentProvisioning] Created '${spec.name}' for ${user.email}`);
-    } else if (agent.instructions !== spec.instructions) {
+    } else if (agent.instructions !== spec.instructions || JSON.stringify(agent.tools) !== JSON.stringify(spec.tools)) {
       agent = await db.updateAgent(
         { _id: agent._id },
-        { instructions: spec.instructions },
+        { instructions: spec.instructions, tools: spec.tools, tool_options: spec.tool_options },
         { updatingUserId: user._id },
       );
       logger.info(`[oidcAgentProvisioning] Updated '${spec.name}' prompt for ${user.email}`);

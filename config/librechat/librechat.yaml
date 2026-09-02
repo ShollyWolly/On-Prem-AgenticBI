@@ -53,7 +53,8 @@ mcpServers:
       First call get_schema, then use query_sql with one read-only Semantic SQL
       query. Query only the views returned by get_schema and use Cube's MEASURE()
       function for metrics. Prefer an explicit LIMIT for exploratory or row-level
-      queries because the server does not add one. Never use warehouse tables,
+      queries because the server does not add one. Administrators may use raw_*
+      views only when get_schema returns them. Never use direct database tables,
       credentials, roles, or identity arguments. The server enforces governance.
 
       Some columns are masked for analysts; do not try to reconstruct, infer, or

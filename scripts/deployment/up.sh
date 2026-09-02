@@ -44,7 +44,29 @@ require_vendor() {
   [ -d "${REPO_ROOT}/${path}" ] || die "${path} is missing; run bash ./bootstrap.sh first"
 }
 
-[ -f "$ENV_FILE" ] || die ".env is missing; run bash ./scripts/general/gen-secrets.sh --apply first"
+for required_env in \
+  "$ENV_FILE" \
+  "${REPO_ROOT}/config/ldap/.env" \
+  "${REPO_ROOT}/config/postgres/.env" \
+  "${REPO_ROOT}/config/cube/env/.env" \
+  "${REPO_ROOT}/config/superset/.env"; do
+  [ -f "$required_env" ] || die "${required_env} is missing; run bash ./scripts/general/gen-secrets.sh --apply first"
+done
+
+if has_profile chat; then
+  for required_env in \
+    "${REPO_ROOT}/config/authentik/.env" \
+    "${REPO_ROOT}/config/librechat/.env" \
+    "${REPO_ROOT}/config/meilisearch/.env" \
+    "${REPO_ROOT}/config/rag-api/.env"; do
+    [ -f "$required_env" ] || die "${required_env} is missing; run bash ./scripts/general/gen-secrets.sh --apply first"
+  done
+fi
+
+if has_profile sandbox; then
+  [ -f "${REPO_ROOT}/config/sandbox/.env" ] || \
+    die "config/sandbox/.env is missing; run bash ./scripts/general/gen-secrets.sh --apply first"
+fi
 
 if has_profile chat; then
   require_vendor vendor/LibreChat
@@ -59,12 +81,14 @@ compose up -d
 wait_healthy abi-openldap 180 || die "openldap did not become healthy in 180s"
 wait_healthy abi-postgres 360 || die "postgres did not become healthy in 360s"
 bash "${REPO_ROOT}/scripts/services/ldap/init.sh"
+bash "${REPO_ROOT}/scripts/services/postgres/remove-warehouse-mcp-role.sh"
 
 if has_profile chat; then
   step "Preparing the chat profile"
   bash "${REPO_ROOT}/scripts/services/postgres/init-vectordb.sh"
   compose --profile chat up -d
   wait_healthy abi-mongodb 120 || die "mongodb did not become healthy in 120s"
+  bash "${REPO_ROOT}/scripts/services/authentik/remove-warehouse-mcp.sh"
   bash "${REPO_ROOT}/scripts/services/librechat/migrate-oidc.sh"
 fi
 

@@ -1,5 +1,7 @@
 .env
 .env.local
+config/**/.env
+config/authentik/postgres.env
 
 vendor/
 

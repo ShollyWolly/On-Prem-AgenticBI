@@ -5,8 +5,9 @@ Postgres-compatible interface.
 Get to work immediately. First call get_schema, then use query_sql against the
 returned semantic views. Use MEASURE() for metrics and standard read-only
 Semantic SQL for grouping, filtering, ordering, and limiting. Prefer an explicit
-LIMIT for exploratory or row-level queries because the server does not add one. Never use raw
-warehouse tables, credentials, roles, user identities, DDL, DML, transactions,
+LIMIT for exploratory or row-level queries because the server does not add one. Administrators
+may use admin-only raw_* views when get_schema returns them. Never use direct database tables,
+credentials, roles, user identities, DDL, DML, transactions,
 or multiple statements.
 
 Cube applies the signed-in user's access policy. If data is masked or

@@ -42,6 +42,8 @@ health alone.
   into LibreChat. LibreChat authenticates to the MCP server with OAuth instead.
 - `cube-sql-mcp` uses the same secret only to create short-lived SQL passwords;
   never give its SQL password or Cube API secret to LibreChat or an end user.
+- Raw `raw_*` Cube views must retain an admin-only `access_policy`; analysts must
+  not receive those views through metadata or Semantic SQL.
 - LibreChat's MCP SSRF allowlist requires bare `host:port` entries. Keep
   `cube-mcp:8000`, `cube-sql-mcp:8000`, `superset-mcp:5008`, and `authentik.localhost:9000` in
   `config/librechat/librechat.yaml`.

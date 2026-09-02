@@ -136,15 +136,19 @@ sequenceDiagram
 
 ## Quick start
 
-1. Create local secrets and set the Azure Foundry values in `.env`.
+1. Create local service configuration, then set Azure Foundry values only in
+   ignored `config/librechat/.env`.
+
+   The tracked examples use `CHANGE_ME_` placeholders. This command replaces
+   them only in ignored local files and keeps shared service values aligned.
 
    ```bash
-   bash ./scripts/general/gen-secrets.sh --apply --force
+   bash ./scripts/general/gen-secrets.sh --apply
    ```
 
    Set `AZURE_FOUNDRY_BASE_URL`, `AZURE_FOUNDRY_API_KEY`, and
-   `AZURE_FOUNDRY_MODEL`. Keep `.env` local and do not rotate stable secrets on a
-   running installation.
+   `AZURE_FOUNDRY_MODEL`. Keep all local environment files private and do not
+   rotate stable secrets on a running installation.
 
 2. Bootstrap the full demonstration.
 
@@ -181,7 +185,7 @@ when testing Cube pre-aggregations.
 
 Open LibreChat at `http://localhost:3080`. It redirects to Authentik; sign in
 with the LDAP account's full email address and password, such as the local demo
-analyst account configured in `.env`. A successful first OIDC login creates that
+analyst account configured in ignored `config/ldap/.env`. A successful first OIDC login creates that
 person's managed agents automatically.
 
 | Agent | MCP server | What it does |
@@ -226,6 +230,7 @@ Cube security is enforced by `config/cube/cube.js` and the view definitions in
 - Query only semantic views and members returned by `get_schema`; raw SQL is not
   available through `cube-mcp`.
 - `cube-sql-mcp` accepts only read-only Semantic SQL against visible views; agents should use an explicit `LIMIT` for exploratory or row-level queries.
+- Administrators also see the admin-only `raw_*` Pagila source-table views through Cube; analysts do not see them.
 
 The Superset exception is intentional. Superset is useful for a shared governed
 dashboard, but it does not pass each dashboard user's identity into Cube.

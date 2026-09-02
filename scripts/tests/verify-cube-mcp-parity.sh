@@ -74,6 +74,61 @@ print(response.json()["data"][0]["revenue_analytics.total_revenue"])
 PY
 }
 
+rest_raw_view_visibility() {
+  docker exec -i abi-cube-mcp python - <<'PY'
+import asyncio
+import os
+import time
+
+import httpx
+import jwt
+
+raw_views = {
+    "raw_actor", "raw_address", "raw_category", "raw_city", "raw_country",
+    "raw_customer", "raw_film", "raw_film_actor", "raw_film_category",
+    "raw_inventory", "raw_language", "raw_payment", "raw_rental", "raw_staff",
+    "raw_seed_complete", "raw_store",
+}
+
+async def metadata(role):
+    identity = {
+        "user": f"{role}@demo.local",
+        "subject": "parity-test",
+        "role": role,
+        "groups": [role],
+    }
+    token = jwt.encode(
+        {"iat": int(time.time()), "exp": int(time.time()) + 60, "securityContext": identity},
+        os.environ["CUBEJS_API_SECRET"],
+        algorithm="HS256",
+    )
+    async with httpx.AsyncClient(timeout=45) as client:
+        response = await client.get(
+            f"{os.environ['CUBE_API_URL']}/meta",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    response.raise_for_status()
+    return response.json()["cubes"]
+
+async def main():
+    analyst_cubes, admin_cubes = await asyncio.gather(metadata("analyst"), metadata("admin"))
+    analyst_views = {cube["name"] for cube in analyst_cubes}
+    admin_views = {cube["name"] for cube in admin_cubes}
+    if analyst_views & raw_views:
+        raise SystemExit(f"analyst can see raw views: {sorted(analyst_views & raw_views)}")
+    missing = raw_views - admin_views
+    if missing:
+        raise SystemExit(f"admin cannot see raw views: {sorted(missing)}")
+    staff = next(cube for cube in admin_cubes if cube["name"] == "raw_staff")
+    staff_dimensions = {dimension["name"] for dimension in staff["dimensions"]}
+    if {"raw_staff.password", "raw_staff.picture"} & staff_dimensions:
+        raise SystemExit("raw_staff exposes credentials or image bytes")
+    print("ok")
+
+asyncio.run(main())
+PY
+}
+
 sql_gateway_revenue() {
   docker exec -i abi-cube-sql-mcp python - <<'PY'
 import asyncio
@@ -128,6 +183,56 @@ asyncio.run(main())
 PY
 }
 
+sql_gateway_raw_view_access() {
+  docker exec -i abi-cube-sql-mcp python - <<'PY'
+import asyncio
+
+from app import connect, validate_sql, visible_views
+
+raw_views = {
+    "raw_actor", "raw_address", "raw_category", "raw_city", "raw_country",
+    "raw_customer", "raw_film", "raw_film_actor", "raw_film_category",
+    "raw_inventory", "raw_language", "raw_payment", "raw_rental", "raw_staff",
+    "raw_seed_complete", "raw_store",
+}
+
+def identity(role):
+    return {
+        "user": f"{role}@demo.local",
+        "subject": "parity-test",
+        "role": role,
+        "groups": [role],
+    }
+
+async def main():
+    admin_connection = await connect(identity("admin"))
+    analyst_connection = await connect(identity("analyst"))
+    try:
+        admin_views = await visible_views(admin_connection)
+        analyst_views = await visible_views(analyst_connection)
+        if not raw_views <= admin_views:
+            raise SystemExit(f"admin missing raw views: {sorted(raw_views - admin_views)}")
+        if raw_views & analyst_views:
+            raise SystemExit(f"analyst can see raw views: {sorted(raw_views & analyst_views)}")
+        query, _ = validate_sql("SELECT email FROM raw_customer LIMIT 1", admin_views)
+        row = await admin_connection.fetchrow(query)
+        if row is None or not row["email"]:
+            raise SystemExit("admin raw_customer query returned no e-mail")
+        try:
+            validate_sql("SELECT email FROM raw_customer LIMIT 1", analyst_views)
+        except ValueError:
+            pass
+        else:
+            raise SystemExit("analyst raw_customer query was allowed")
+    finally:
+        await admin_connection.close()
+        await analyst_connection.close()
+    print("ok")
+
+asyncio.run(main())
+PY
+}
+
 require_container abi-cube
 require_container abi-cube-mcp
 require_container abi-cube-sql-mcp
@@ -148,6 +253,9 @@ sql_revenue="$(cube_sql analyst@demo.local "$analyst_password" 'SELECT MEASURE(t
 api_revenue="$(rest_revenue)"
 assert "SQL and REST revenue results match" "$([ "$sql_revenue" = "$api_revenue" ] && echo 1 || echo 0)"
 
+rest_raw_views="$(rest_raw_view_visibility)"
+assert "REST MCP exposes raw views only to admins" "$([ "$rest_raw_views" = "ok" ] && echo 1 || echo 0)"
+
 gateway_result="$(sql_gateway_revenue)"
 assert "SQL MCP connects with the signed analyst context" \
   "$([ "$gateway_result" = "5|${sql_revenue}" ] && echo 1 || echo 0)"
@@ -155,6 +263,10 @@ assert "SQL MCP connects with the signed analyst context" \
 schema_output="$(sql_gateway_schema)"
 assert "SQL MCP includes Cube view and column descriptions" \
   "$([ "$schema_output" = "ok" ] && echo 1 || echo 0)"
+
+sql_raw_views="$(sql_gateway_raw_view_access)"
+assert "SQL MCP exposes and queries raw views only for admins" \
+  "$([ "$sql_raw_views" = "ok" ] && echo 1 || echo 0)"
 
 validator_output="$(docker exec -i abi-cube-sql-mcp python - <<'PY'
 from app import validate_sql

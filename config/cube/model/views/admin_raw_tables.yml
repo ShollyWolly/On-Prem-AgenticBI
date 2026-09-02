@@ -1,0 +1,96 @@
+views:
+  - name: raw_actor
+    title: Raw Actor Table
+    description: "Administrator-only Pagila actor source table."
+    cubes: [{ join_path: raw_source_actor, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_address
+    title: Raw Address Table
+    description: "Administrator-only Pagila address source table."
+    cubes: [{ join_path: raw_source_address, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_category
+    title: Raw Category Table
+    description: "Administrator-only Pagila category source table."
+    cubes: [{ join_path: raw_source_category, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_city
+    title: Raw City Table
+    description: "Administrator-only Pagila city source table."
+    cubes: [{ join_path: raw_source_city, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_country
+    title: Raw Country Table
+    description: "Administrator-only Pagila country source table."
+    cubes: [{ join_path: raw_source_country, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_customer
+    title: Raw Customer Table
+    description: "Administrator-only Pagila customer source table."
+    cubes: [{ join_path: raw_source_customer, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_film
+    title: Raw Film Table
+    description: "Administrator-only Pagila film source table."
+    cubes: [{ join_path: raw_source_film, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_film_actor
+    title: Raw Film Actor Table
+    description: "Administrator-only Pagila film_actor bridge table."
+    cubes: [{ join_path: raw_source_film_actor, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_film_category
+    title: Raw Film Category Table
+    description: "Administrator-only Pagila film_category bridge table."
+    cubes: [{ join_path: raw_source_film_category, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_inventory
+    title: Raw Inventory Table
+    description: "Administrator-only Pagila inventory source table."
+    cubes: [{ join_path: raw_source_inventory, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_language
+    title: Raw Language Table
+    description: "Administrator-only Pagila language source table."
+    cubes: [{ join_path: raw_source_language, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_payment
+    title: Raw Payment Table
+    description: "Administrator-only Pagila payment source table."
+    cubes: [{ join_path: raw_source_payment, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_rental
+    title: Raw Rental Table
+    description: "Administrator-only Pagila rental source table."
+    cubes: [{ join_path: raw_source_rental, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_seed_complete
+    title: Raw Seed Complete Table
+    description: "Administrator-only Pagila seed status table."
+    cubes: [{ join_path: raw_source_seed_complete, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_staff
+    title: Raw Staff Table
+    description: "Administrator-only Pagila staff source table without credentials or image bytes."
+    cubes: [{ join_path: raw_source_staff, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]
+
+  - name: raw_store
+    title: Raw Store Table
+    description: "Administrator-only Pagila store source table."
+    cubes: [{ join_path: raw_source_store, includes: "*" }]
+    access_policy: [{ group: admin, member_level: { includes: "*" } }]

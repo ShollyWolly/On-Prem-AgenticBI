@@ -102,7 +102,7 @@ for pair in "${ANALYST_EMAIL}:${ANALYST_PW}" "${ADMIN_EMAIL}:${ADMIN_USER_PW}"; 
        >/dev/null 2>&1; then
     ok "  bind OK as uid=${uid} (${email})"
   else
-    die "  bind FAILED as uid=${uid} -- password in LDAP does not match .env"
+    die "  bind FAILED as uid=${uid} -- password in LDAP does not match config/ldap/.env"
   fi
 done
 
