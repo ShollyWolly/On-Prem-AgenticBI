@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This migration preserves managed LibreChat agents when users move to Authentik OIDC identities.
 source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 container_running abi-mongodb || die "abi-mongodb is not running"
@@ -71,3 +72,4 @@ printf '%s\n' "$out" | sed 's/^/  /'
 printf '%s' "$out" | grep -q 'WAREHOUSE_REMOVAL changed=' || die "migration did not report a result"
 
 info "Existing users are linked to Authentik by e-mail at their first OIDC login; their Mongo _id is preserved."
+bash "${REPO_ROOT}/scripts/services/librechat/provision-managed-agents.sh"

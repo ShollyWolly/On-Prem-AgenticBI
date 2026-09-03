@@ -1,3 +1,4 @@
+# This dataset imports the governed Cube revenue analytics view into Superset.
 table_name: revenue_analytics
 
 schema: public

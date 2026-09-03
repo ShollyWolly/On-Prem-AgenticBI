@@ -1,0 +1,21 @@
+{# This shared layout provides navigation and identity context for audit console pages. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Verified SQL audit</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <a href="/"><strong>Verified SQL audit</strong></a>
+    <a href="/conversations">Conversations</a>
+    <span class="grow"></span>
+    <span>{{ admin_email }}</span>
+    <a href="/logout">Sign out</a>
+  </header>
+  <main>{% block body %}{% endblock %}</main>
+</body>
+</html>

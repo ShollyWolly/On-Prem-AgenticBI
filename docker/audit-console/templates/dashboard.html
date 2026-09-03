@@ -1,0 +1,25 @@
+{# This page summarizes verified SQL activity for authorized administrators. #}
+{% extends "base.html" %}
+{% block body %}
+<h1>Audit overview</h1>
+<p class="muted">Only successful Cube SQL executions sent through the Verified SQL BI Analyst are recorded.</p>
+<div class="cards">
+  <div class="card"><div class="muted">Verified queries</div><div class="number">{{ summary.total }}</div></div>
+  <div class="card"><div class="muted">Released</div><div class="number status-pass">{{ summary.passed }}</div></div>
+  <div class="card"><div class="muted">Blocked</div><div class="number status-fail">{{ summary.failed }}</div></div>
+  <div class="card"><div class="muted">Judge unavailable</div><div class="number status-unavailable">{{ summary.unavailable }}</div></div>
+</div>
+<section class="spaced">
+  <h2>Recent verifier decisions</h2>
+  <table>
+    <thead><tr><th>Time</th><th>User</th><th>Conversation</th><th>Agent</th><th>Outcome</th><th>Confidence</th><th>Rows</th></tr></thead>
+    <tbody>
+      {% for event in events %}
+      <tr><td><a href="/events/{{ event.event_id }}">{{ event.occurred_at }}</a></td><td>{{ event.oauth_email }}</td><td><a href="/conversations/{{ event.conversation_id }}">{{ event.conversation_id }}</a></td><td>{{ event.agent_id or "-" }}</td><td class="status-{{ event.outcome }}">{{ event.outcome }}</td><td>{{ "%.0f"|format(event.judge_confidence * 100) ~ "%" if event.judge_confidence is not none else "-" }}</td><td>{{ event.row_count if event.row_count is not none else "-" }}</td></tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">No verified SQL executions have been recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

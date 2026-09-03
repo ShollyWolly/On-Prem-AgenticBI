@@ -1,3 +1,4 @@
+# This view presents rental activity and duration metrics for governed analysis.
 views:
   - name: rental_analytics
     title: Rental Analytics

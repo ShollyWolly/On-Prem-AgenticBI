@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This check verifies Cube role masking and parity between the REST and Semantic SQL MCPs.
 source "$(dirname "${BASH_SOURCE[0]}")/../general/lib.sh"
 
 set -euo pipefail
@@ -158,6 +159,38 @@ asyncio.run(main())
 PY
 }
 
+sql_gateway_masked_revenue() {
+  docker exec -i abi-cube-sql-mcp python - <<'PY'
+import asyncio
+
+from app import connect, validate_sql, visible_views
+
+identity = {
+    "user": "analyst@demo.local",
+    "subject": "parity-test",
+    "role": "analyst",
+    "groups": ["analyst"],
+}
+
+async def main():
+    connection = await connect(identity)
+    try:
+        query, _ = validate_sql(
+            "SELECT customers_full_name, customers_email, MEASURE(total_revenue) "
+            "FROM revenue_analytics GROUP BY customers_full_name, customers_email LIMIT 1",
+            await visible_views(connection),
+        )
+        row = await connection.fetchrow(query)
+    finally:
+        await connection.close()
+    if row is None or not str(row["customers_email"]).startswith("***@"):
+        raise SystemExit("masked customer revenue query failed")
+    print("ok")
+
+asyncio.run(main())
+PY
+}
+
 sql_gateway_schema() {
   docker exec -i abi-cube-sql-mcp python - <<'PY'
 import asyncio
@@ -236,11 +269,17 @@ PY
 require_container abi-cube
 require_container abi-cube-mcp
 require_container abi-cube-sql-mcp
+require_container abi-sql-verifier-mcp
 
 sql_mcp_port="$(env_get CUBE_SQL_MCP_HOST_PORT || true)"
 sql_mcp_port="${sql_mcp_port:-8004}"
 sql_mcp_status="$(curl -sS -o /dev/null -w '%{http_code}' "http://localhost:${sql_mcp_port}/mcp" || true)"
 assert "Cube SQL MCP rejects unauthenticated requests" "$([ "$sql_mcp_status" = "401" ] && echo 1 || echo 0)"
+
+verified_sql_mcp_port="$(env_get VERIFIED_SQL_MCP_HOST_PORT || true)"
+verified_sql_mcp_port="${verified_sql_mcp_port:-8005}"
+verified_sql_mcp_status="$(curl -sS -o /dev/null -w '%{http_code}' "http://localhost:${verified_sql_mcp_port}/mcp" || true)"
+assert "Verified SQL MCP rejects unauthenticated requests" "$([ "$verified_sql_mcp_status" = "401" ] && echo 1 || echo 0)"
 
 analyst_password="$(sql_password_for analyst@demo.local analyst)"
 admin_password="$(sql_password_for admin@demo.local admin)"
@@ -248,6 +287,9 @@ analyst_email="$(cube_sql analyst@demo.local "$analyst_password" 'SELECT custome
 admin_email="$(cube_sql admin@demo.local "$admin_password" 'SELECT customers_email FROM revenue_analytics GROUP BY 1 LIMIT 1')"
 assert "signed analyst SQL session masks customer e-mail" "$(case "$analyst_email" in '***@'*) echo 1 ;; *) echo 0 ;; esac)"
 assert "signed admin SQL session reveals customer e-mail" "$(case "$admin_email" in '***@'*|'') echo 0 ;; *) echo 1 ;; esac)"
+
+analyst_masked_revenue="$(sql_gateway_masked_revenue)"
+assert "analyst grouped PII view query executes with masks" "$([ "$analyst_masked_revenue" = "ok" ] && echo 1 || echo 0)"
 
 sql_revenue="$(cube_sql analyst@demo.local "$analyst_password" 'SELECT MEASURE(total_revenue) FROM revenue_analytics')"
 api_revenue="$(rest_revenue)"

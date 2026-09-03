@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# This image adds the PostgreSQL driver required by Superset to reach Cube SQL.
 FROM apache/superset:6.1.0
 
 USER root

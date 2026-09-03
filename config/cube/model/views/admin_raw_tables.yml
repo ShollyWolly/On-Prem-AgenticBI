@@ -1,3 +1,4 @@
+# This admin-only view collection exposes registered raw Pagila tables through Cube policies.
 views:
   - name: raw_actor
     title: Raw Actor Table

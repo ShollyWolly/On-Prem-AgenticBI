@@ -11,6 +11,9 @@ health alone.
   `CUBE_MODE=demo` and validate masking with both an analyst and an admin identity.
 - `mask` belongs on cubes and `access_policy` belongs on views. Policies on a
   base cube do not govern queries against a view.
+- A mask expression used through a view must reference its owning source cube,
+  such as `{customers}`, rather than `{CUBE}`. In a view, `{CUBE}` can resolve
+  to the view alias and produce a PostgreSQL missing-FROM error.
 - Use `{ securityContext.x }`, not Cube Cloud user attributes. The gateway puts
   the verified request identity in Cube's `securityContext` claim.
 - `extendContext` receives the full REST JWT payload. It must unwrap the nested
@@ -30,7 +33,9 @@ health alone.
 
 - LibreChat performs OIDC discovery at startup. Authentik's healthcheck must wait
   for the LibreChat discovery endpoint, not merely `ak healthcheck`, or LibreChat
-  may start without an OIDC strategy.
+  may start without an OIDC strategy. The managed bootstrap and `up.sh` wait for
+  that endpoint and recreate LibreChat; a manual Compose start does not add this
+  recovery step.
 - The Cube OAuth provider must use Authentik's internal JWT certificate as its
   signing key. If the JWKS is empty, access tokens are not suitable for the
   gateway and MCP requests fail with `invalid_token` or time out. Run `V4` to
@@ -45,8 +50,14 @@ health alone.
 - Raw `raw_*` Cube views must retain an admin-only `access_policy`; analysts must
   not receive those views through metadata or Semantic SQL.
 - LibreChat's MCP SSRF allowlist requires bare `host:port` entries. Keep
-  `cube-mcp:8000`, `cube-sql-mcp:8000`, `superset-mcp:5008`, and `authentik.localhost:9000` in
+  `cube-mcp:8000`, `cube-sql-mcp:8000`, `verified-sql-mcp:8000`, `superset-mcp:5008`, and `authentik.localhost:9000` in
   `config/librechat/librechat.yaml`.
+- The verified SQL MCP must judge only after Cube SQL succeeds and must never send query rows to the judge.
+- Verified SQL rows must not be released if the HMAC-signed audit context is invalid or the encrypted audit record cannot be inserted.
+- The audit console is read-only and must deny analysts, missing group claims, and users in both mapped groups.
+- The PostgreSQL verifier audit is a demo review trail, not enterprise-grade
+  monitoring. It has no OpenTelemetry export, centralized telemetry backend, or
+  production alerting and retention controls.
 - The LibreChat OIDC patch provisions agents after a persisted user record exists.
   Do not create agent records by hand.
 - After changing the Authentik provider, reconnect the Cube connection in
@@ -87,6 +98,8 @@ health alone.
 - A fresh Authentik state needs the LDAP source and providers from the mounted
   blueprint. Inspect Authentik provider configuration before weakening token
   verification.
+- `initdb.d` cannot add audit objects to an existing PostgreSQL volume; use
+  `scripts/services/postgres/init-audit.sh`, which is run by the managed startup script.
 - Start with `docker compose ps`, focused logs, and the narrowest verification
   check. A healthy container does not prove login, browser rendering, MCP access,
   or authorization.

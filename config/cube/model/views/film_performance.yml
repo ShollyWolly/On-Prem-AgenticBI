@@ -1,3 +1,4 @@
+# This view presents catalog and rental performance by film.
 views:
   - name: film_performance
     title: Film Performance

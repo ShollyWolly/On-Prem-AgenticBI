@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 
+# This build prepares reusable Python packages for the isolated Code Interpreter sandbox.
 source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 FORCE=0
-[ "${1:-}" = "--force" ] && FORCE=1
+NO_CACHE=0
+for arg in "$@"; do
+  case "$arg" in
+    --force) FORCE=1 ;;
+    --no-cache) NO_CACHE=1 ;;
+    *) die "unknown argument: $arg" ;;
+  esac
+done
 
 VOLUME=agentic-bi_codeapi_pkgs
 CI_DIR="${REPO_ROOT}/vendor/code-interpreter"
@@ -17,7 +25,10 @@ fi
 docker volume create "$VOLUME" >/dev/null
 
 step "Building package-init image"
-docker build -f "${CI_DIR}/docker/Dockerfile.package-init" -t codeapi-package-init "$CI_DIR"
+build_command=(docker build)
+[ "$NO_CACHE" -eq 1 ] && build_command+=(--no-cache)
+build_command+=(-f "${CI_DIR}/docker/Dockerfile.package-init" -t codeapi-package-init "$CI_DIR")
+"${build_command[@]}"
 
 step "Populating ${VOLUME} (compiles CPython from source; 20-45 min)"
 env_args=(-e PYTHON_PACKAGE_INSTALLER=uv)

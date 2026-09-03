@@ -1,0 +1,12 @@
+{# This page filters and lists LibreChat conversations that have verifier evidence. #}
+{% extends "base.html" %}
+{% block body %}
+<h1>All LibreChat conversations</h1>
+<form method="get" action="/conversations" data-conversation-filter>
+  <input name="q" value="{{ q }}" placeholder="User email, title, or agent">
+  <button>Filter</button>
+</form>
+<section class="compact spaced">
+  <div id="conversation-results">{% include "conversation_rows.html" %}</div>
+</section>
+{% endblock %}

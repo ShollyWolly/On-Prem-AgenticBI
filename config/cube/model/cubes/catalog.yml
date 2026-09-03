@@ -1,3 +1,4 @@
+# This semantic cube exposes film catalog attributes for governed analytics.
 cubes:
   - name: films
     sql_table: public.film

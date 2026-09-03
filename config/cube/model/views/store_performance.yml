@@ -1,3 +1,4 @@
+# This view presents store and staff performance metrics for governed analysis.
 views:
   - name: store_performance
     title: Store Performance

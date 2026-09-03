@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This lifecycle command starts an existing bootstrapped stack and reruns safe initializers.
 source "$(dirname "${BASH_SOURCE[0]}")/../general/lib.sh"
 
 usage() {
@@ -49,23 +50,28 @@ for required_env in \
   "${REPO_ROOT}/config/ldap/.env" \
   "${REPO_ROOT}/config/postgres/.env" \
   "${REPO_ROOT}/config/cube/env/.env" \
-  "${REPO_ROOT}/config/superset/.env"; do
+  "${REPO_ROOT}/config/superset/.env" \
+  "${REPO_ROOT}/config/audit/core/.env" \
+  "${REPO_ROOT}/config/audit/writer/.env" \
+  "${REPO_ROOT}/config/audit/console/.env"; do
   [ -f "$required_env" ] || die "${required_env} is missing; run bash ./scripts/general/gen-secrets.sh --apply first"
 done
 
 if has_profile chat; then
   for required_env in \
     "${REPO_ROOT}/config/authentik/.env" \
+    "${REPO_ROOT}/config/foundry/.env" \
     "${REPO_ROOT}/config/librechat/.env" \
-    "${REPO_ROOT}/config/meilisearch/.env" \
-    "${REPO_ROOT}/config/rag-api/.env"; do
+    "${REPO_ROOT}/config/librechat/extensions/meilisearch/.env" \
+    "${REPO_ROOT}/config/librechat/extensions/rag-api/.env" \
+    "${REPO_ROOT}/config/mcp/verified-sql/.env"; do
     [ -f "$required_env" ] || die "${required_env} is missing; run bash ./scripts/general/gen-secrets.sh --apply first"
   done
 fi
 
 if has_profile sandbox; then
-  [ -f "${REPO_ROOT}/config/sandbox/.env" ] || \
-    die "config/sandbox/.env is missing; run bash ./scripts/general/gen-secrets.sh --apply first"
+  [ -f "${REPO_ROOT}/config/librechat/extensions/sandbox/.env" ] || \
+    die "config/librechat/extensions/sandbox/.env is missing; run bash ./scripts/general/gen-secrets.sh --apply first"
 fi
 
 if has_profile chat; then
@@ -82,12 +88,19 @@ wait_healthy abi-openldap 180 || die "openldap did not become healthy in 180s"
 wait_healthy abi-postgres 360 || die "postgres did not become healthy in 360s"
 bash "${REPO_ROOT}/scripts/services/ldap/init.sh"
 bash "${REPO_ROOT}/scripts/services/postgres/remove-warehouse-mcp-role.sh"
+bash "${REPO_ROOT}/scripts/services/postgres/init-audit.sh"
 
 if has_profile chat; then
   step "Preparing the chat profile"
   bash "${REPO_ROOT}/scripts/services/postgres/init-vectordb.sh"
   compose --profile chat up -d
   wait_healthy abi-mongodb 120 || die "mongodb did not become healthy in 120s"
+  wait_healthy abi-authentik-server 300 || die "authentik did not become healthy in 300s"
+  authentik_port="$(env_get AUTHENTIK_HOST_PORT || echo 9000)"
+  wait_http_status "http://localhost:$authentik_port/application/o/librechat/.well-known/openid-configuration" 200 300 || \
+    die "Authentik did not publish LibreChat OIDC discovery in 300s"
+  compose --profile chat up -d --no-deps --force-recreate librechat
+  wait_healthy abi-librechat 300 || die "librechat did not become healthy in 300s"
   bash "${REPO_ROOT}/scripts/services/authentik/remove-warehouse-mcp.sh"
   bash "${REPO_ROOT}/scripts/services/librechat/migrate-oidc.sh"
 fi

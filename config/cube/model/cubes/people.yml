@@ -1,3 +1,4 @@
+# This semantic cube exposes actor attributes for catalog analysis.
 cubes:
   - name: actors
     sql_table: public.actor

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This script fetches the Pagila schema and sample data used by the local warehouse.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 FORCE=0

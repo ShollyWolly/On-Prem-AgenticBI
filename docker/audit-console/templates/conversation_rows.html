@@ -1,0 +1,11 @@
+{# This partial is returned for asynchronous conversation search updates. #}
+<table>
+  <thead><tr><th>Updated</th><th>User</th><th>Title</th><th>Agent</th><th>Verified SQL events</th></tr></thead>
+  <tbody>
+    {% for convo in conversations %}
+    <tr><td>{{ convo.updatedAt }}</td><td>{{ convo.user_email or convo.user }}</td><td><a href="/conversations/{{ convo.conversationId }}">{{ convo.title }}</a></td><td>{{ convo.agent_name or convo.agent_id or "-" }}</td><td>{{ convo.audit_count }}</td></tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">No matching conversations.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

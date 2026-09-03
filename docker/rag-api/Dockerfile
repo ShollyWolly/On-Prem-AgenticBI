@@ -1,3 +1,4 @@
+# This image builds the pinned RAG API with CPU-only machine learning dependencies.
 FROM python:3.12 AS main
 
 WORKDIR /app
@@ -16,8 +17,9 @@ ARG TORCH_VERSION=2.6.0
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir \
-        "torch==${TORCH_VERSION}+cpu" \
-    && printf 'opencv-python==%s\ntorch==%s+cpu\n' "$OPENCV_VERSION" "$TORCH_VERSION" \
+        --index-url https://download.pytorch.org/whl/cpu \
+        "torch==${TORCH_VERSION}" \
+    && printf 'opencv-python==%s\ntorch==%s\n' "$OPENCV_VERSION" "$TORCH_VERSION" \
         > /tmp/constraints.txt \
     && pip install --no-cache-dir -r requirements.txt -c /tmp/constraints.txt \
     && python -c "import torch; assert not torch.version.cuda, f'CUDA torch leaked in: {torch.__version__}'; print('torch', torch.__version__, 'cpu-only OK')"

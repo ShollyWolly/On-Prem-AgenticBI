@@ -1,3 +1,4 @@
+# These fact cubes define the rental and payment measures used by business views.
 cubes:
   - name: rentals
     sql_table: public.rental

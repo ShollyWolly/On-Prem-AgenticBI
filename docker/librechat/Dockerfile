@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# This wrapper builds the pinned LibreChat source with local OIDC integration files available.
 FROM node:24.16.0-alpine AS node
 
 ARG NODE_MAX_OLD_SPACE_SIZE=6144

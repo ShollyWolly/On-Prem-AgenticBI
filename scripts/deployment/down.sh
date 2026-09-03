@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This lifecycle command stops selected Compose profiles and can remove their persistent volumes.
 source "$(dirname "${BASH_SOURCE[0]}")/../general/lib.sh"
 
 usage() {

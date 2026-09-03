@@ -6,15 +6,17 @@ instructions belong in [`../docker/`](../docker/).
 | Directory | Consumers | Purpose |
 |---|---|---|
 | `authentik/` | Authentik server and worker | LDAP source plus LibreChat OIDC and Cube MCP OAuth providers. |
+| `audit/` | LibreChat, verifier, audit console | Nested shared, writer, and console audit settings. |
 | `cube/` | Cube | Semantic cubes, views, request security-context handling, and mode-specific environment settings. |
 | `garage/` | Garage | Object-storage daemon configuration. |
-| `librechat/` | LibreChat | MCP definitions, OAuth client configuration, and managed-agent instructions. |
+| `librechat/` | LibreChat extensions | Chat settings, MCP definitions, RAG, search, sandbox, and managed-agent instructions. |
+| `mcp/` | MCP services | Service-local environment settings for Cube REST, Cube SQL, and verified SQL gateways. |
 | `postgres/` | PostgreSQL | Pagila seed, grants, and date-shift initialization. |
 | `superset/` | Superset and Superset MCP | LDAP auth, dashboard assets, and the read-only MCP service account. |
 
 ## Authorization boundary
 
-`config/cube/` and `docker/cube-mcp/` are the data-authorization boundary.
+`config/cube/` and `docker/mcp/cube/` are the data-authorization boundary.
 `cube-mcp` verifies Authentik OAuth tokens, maps exactly one LDAP group to a Cube
 security context, and sends only a short-lived signed context to Cube. Cube views
 apply access policies and masks.

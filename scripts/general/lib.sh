@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This shared library provides strict shell behavior, environment lookup, and Compose helpers.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -8,14 +9,19 @@ SERVICE_ENV_FILES=(
   "${REPO_ROOT}/config/ldap/.env"
   "${REPO_ROOT}/config/postgres/.env"
   "${REPO_ROOT}/config/cube/env/.env"
-  "${REPO_ROOT}/config/cube-mcp/.env"
-  "${REPO_ROOT}/config/cube-sql-mcp/.env"
+  "${REPO_ROOT}/config/mcp/cube/.env"
+  "${REPO_ROOT}/config/mcp/cube-sql/.env"
   "${REPO_ROOT}/config/superset/.env"
   "${REPO_ROOT}/config/authentik/.env"
-  "${REPO_ROOT}/config/meilisearch/.env"
-  "${REPO_ROOT}/config/rag-api/.env"
+  "${REPO_ROOT}/config/librechat/extensions/meilisearch/.env"
+  "${REPO_ROOT}/config/librechat/extensions/rag-api/.env"
+  "${REPO_ROOT}/config/foundry/.env"
   "${REPO_ROOT}/config/librechat/.env"
-  "${REPO_ROOT}/config/sandbox/.env"
+  "${REPO_ROOT}/config/mcp/verified-sql/.env"
+  "${REPO_ROOT}/config/audit/core/.env"
+  "${REPO_ROOT}/config/audit/writer/.env"
+  "${REPO_ROOT}/config/audit/console/.env"
+  "${REPO_ROOT}/config/librechat/extensions/sandbox/.env"
 )
 
 if [ -t 1 ]; then

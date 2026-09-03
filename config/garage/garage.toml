@@ -15,3 +15,4 @@ root_domain    = ".s3.garage.internal"
 
 [admin]
 api_bind_addr = "[::]:3903"
+# Garage provides the local S3-compatible object store used by the optional code sandbox.

@@ -1,4 +1,5 @@
 
+-- Cube receives read-only access to the warehouse so semantic policies remain the public boundary.
 \echo '>>> 40-grants: granting SELECT-only to the Cube role'
 
 GRANT CONNECT ON DATABASE pagila TO cube_ro;

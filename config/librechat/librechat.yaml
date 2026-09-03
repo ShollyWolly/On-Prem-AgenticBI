@@ -1,3 +1,4 @@
+# LibreChat connects managed agents to only the internal, OAuth-protected MCP services listed here.
 version: 1.3.0
 cache: true
 
@@ -5,6 +6,7 @@ mcpSettings:
   allowedAddresses:
     - "cube-mcp:8000"
     - "cube-sql-mcp:8000"
+    - "verified-sql-mcp:8000"
     - "superset-mcp:5008"
     - "authentik.localhost:9000"
 
@@ -24,8 +26,10 @@ mcpServers:
       You are querying a governed Cube.dev semantic layer. Authenticate to this
       MCP when LibreChat asks; Authentik SSO makes the consent flow user-specific.
 
-      First call get_schema, then query with a structured Cube REST query object.
-      Use the semantic view/member names returned by get_schema; never invent raw
+      For an analytical request, call get_schema at most once, then query with a
+      structured Cube REST query object. Do not call tools before the user asks
+      an analytical question, and never call get_schema again just to confirm the
+      same schema. Use the semantic view/member names returned by get_schema; never invent raw
       SQL, joins, CTEs, table names, or an identity/role argument. Query one view
       at a time. Use measures, dimensions, filters, timeDimensions, order, limit,
       and timezone as needed. Call whoami only when explaining policy effects.
@@ -50,8 +54,10 @@ mcpServers:
       Authenticate to this MCP when LibreChat asks; Authentik SSO makes the
       connection user-specific.
 
-      First call get_schema, then use query_sql with one read-only Semantic SQL
-      query. Query only the views returned by get_schema and use Cube's MEASURE()
+      For an analytical request, call get_schema at most once, then use query_sql
+      with one read-only Semantic SQL query. Do not call tools before the user
+      asks an analytical question, and never call get_schema again just to confirm
+      the same schema. Query only the views returned by get_schema and use Cube's MEASURE()
       function for metrics. Prefer an explicit LIMIT for exploratory or row-level
       queries because the server does not add one. Administrators may use raw_*
       views only when get_schema returns them. Never use direct database tables,
@@ -59,6 +65,25 @@ mcpServers:
 
       Some columns are masked for analysts; do not try to reconstruct, infer, or
       bypass masked values.
+
+  verified_sql:
+    type: streamable-http
+    url: "http://verified-sql-mcp:8000/mcp"
+    oauth:
+      client_id: "cube-mcp"
+      authorization_url: "http://authentik.localhost:9000/application/o/authorize/"
+      token_url: "http://authentik.localhost:9000/application/o/token/"
+      scope: "openid profile email cube.read"
+    timeout: 120000
+    initTimeout: 45000
+    chatMenu: false
+    serverInstructions: |
+      You are querying governed Cube Semantic SQL through a verification gate.
+      For an analytical request, call get_schema at most once, then query_sql with
+      the exact user request and one read-only SQL statement. Do not call tools
+      before the user asks an analytical question, and never call get_schema again
+      just to confirm the same schema. The verifier runs only after Cube accepts SQL and
+      withholds rows when the SQL verdict fails or is unavailable.
 
   superset:
     type: streamable-http
@@ -112,8 +137,8 @@ endpoints:
       dropParams: ["user", "frequency_penalty", "presence_penalty"]
 
   agents:
-    recursionLimit: 40
-    maxRecursionLimit: 80
+    recursionLimit: 8
+    maxRecursionLimit: 12
     disableBuilder: false
     capabilities:
       - "execute_code"

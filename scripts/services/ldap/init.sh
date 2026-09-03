@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This initializer reconciles LDAP demo users and their analyst or admin group membership.
 source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 BASE_DN="$(env_get LDAP_BASE_DN || echo 'dc=demo,dc=local')"

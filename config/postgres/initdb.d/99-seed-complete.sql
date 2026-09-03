@@ -1,4 +1,5 @@
 
+-- This marker lets service health checks confirm that warehouse initialization completed.
 CREATE TABLE public.seed_complete (
   id           integer PRIMARY KEY DEFAULT 1,
   completed_at timestamptz NOT NULL DEFAULT now(),

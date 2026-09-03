@@ -1,3 +1,4 @@
+# This view presents customer metrics and masked customer attributes to eligible roles.
 views:
   - name: customer_analytics
     title: Customer Analytics

@@ -1,4 +1,5 @@
 
+-- This initialization step moves static Pagila timestamps into a recent reporting period.
 \echo '>>> 30-date-shift: relocating Pagila into the trailing months'
 \timing on
 

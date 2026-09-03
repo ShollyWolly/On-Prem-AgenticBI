@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This cleanup removes the retired direct warehouse MCP application from Authentik.
 source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 container_running abi-authentik-server || die "abi-authentik-server is not running"

@@ -1,3 +1,4 @@
+# This database asset connects Superset to Cube SQL with a fixed service identity.
 database_name: Cube Semantic Layer
 sqlalchemy_uri: __CUBE_SQLALCHEMY_URI__
 

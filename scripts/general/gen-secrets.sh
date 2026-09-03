@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This script creates ignored service environment files while preserving existing local secrets.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 APPLY=0
@@ -16,8 +17,8 @@ Creates ignored service-local environment files from their tracked examples.
 It generates secure local values for CHANGE_ME placeholders and keeps values
 shared by multiple services identical. When migrating an existing root .env,
 it preserves each current value and reduces the root file to Compose-wide ports
-and CUBE_MODE. Azure Foundry values are copied only to the ignored LibreChat
-environment file and are never included in a tracked example.
+and CUBE_MODE. Azure Foundry values are copied only to the ignored shared
+Foundry environment file and are never included in a tracked example.
 EOF
       exit 0
       ;;
@@ -29,15 +30,20 @@ examples=(
   "config/ldap/.env.example"
   "config/postgres/.env.example"
   "config/cube/env/.env.example"
-  "config/cube-mcp/.env.example"
-  "config/cube-sql-mcp/.env.example"
+  "config/mcp/cube/.env.example"
+  "config/mcp/cube-sql/.env.example"
   "config/superset/.env.example"
   "config/authentik/postgres.env.example"
   "config/authentik/.env.example"
-  "config/meilisearch/.env.example"
-  "config/rag-api/.env.example"
+  "config/librechat/extensions/meilisearch/.env.example"
+  "config/librechat/extensions/rag-api/.env.example"
+  "config/foundry/.env.example"
   "config/librechat/.env.example"
-  "config/sandbox/.env.example"
+  "config/mcp/verified-sql/.env.example"
+  "config/audit/core/.env.example"
+  "config/audit/writer/.env.example"
+  "config/audit/console/.env.example"
+  "config/librechat/extensions/sandbox/.env.example"
 )
 
 command -v openssl >/dev/null || die "openssl is required"
@@ -56,25 +62,27 @@ secret_key_for() {
     config/superset/.env.example:CUBE_SQL_PASSWORD) printf '%s' CUBEJS_SQL_PASSWORD ;;
     config/authentik/postgres.env.example:POSTGRES_PASSWORD) printf '%s' AUTHENTIK_POSTGRES_PASSWORD ;;
     config/authentik/.env.example:AUTHENTIK_POSTGRESQL__PASSWORD) printf '%s' AUTHENTIK_POSTGRES_PASSWORD ;;
-    config/rag-api/.env.example:POSTGRES_PASSWORD) printf '%s' VECTOR_DB_PASSWORD ;;
+    config/librechat/extensions/rag-api/.env.example:POSTGRES_PASSWORD) printf '%s' VECTOR_DB_PASSWORD ;;
     config/librechat/.env.example:OPENID_CLIENT_SECRET) printf '%s' AUTHENTIK_LIBRECHAT_CLIENT_SECRET ;;
     config/ldap/.env.example:LDAP_CONFIG_PASSWORD) printf '%s' LDAP_ADMIN_PASSWORD ;;
-    config/sandbox/.env.example:REDIS_PASSWORD) printf '%s' CODEAPI_REDIS_PASSWORD ;;
+    config/librechat/extensions/sandbox/.env.example:REDIS_PASSWORD) printf '%s' CODEAPI_REDIS_PASSWORD ;;
     *) printf '%s' "$key" ;;
   esac
 }
 
 generate_for() {
   case "$1" in
-    AUTHENTIK_SECRET_KEY|AUTHENTIK_BOOTSTRAP_TOKEN|CUBEJS_API_SECRET|CREDS_KEY|JWT_SECRET|JWT_REFRESH_SECRET|OPENID_SESSION_SECRET|GARAGE_RPC_SECRET|GARAGE_ADMIN_TOKEN|MINIO_SECRET_KEY)
+    AUTHENTIK_SECRET_KEY|AUTHENTIK_BOOTSTRAP_TOKEN|CUBEJS_API_SECRET|CREDS_KEY|JWT_SECRET|JWT_REFRESH_SECRET|OPENID_SESSION_SECRET|GARAGE_RPC_SECRET|GARAGE_ADMIN_TOKEN|MINIO_SECRET_KEY|AUDIT_CONTEXT_HMAC_KEY|AUDIT_CONSOLE_SESSION_SECRET)
       rand_hex 32 ;;
+    AUDIT_PAYLOAD_ENCRYPTION_KEY)
+      openssl rand -base64 32 | tr '+/' '-_' ;;
     CREDS_IV)
       rand_hex 16 ;;
     MINIO_ACCESS_KEY)
       rand_garage_key ;;
     CODEAPI_INTERNAL_SERVICE_TOKEN|CODEAPI_EGRESS_GRANT_SECRET)
       rand_b64 32 ;;
-    POSTGRES_PASSWORD|SUPERSET_DB_PASSWORD|CUBE_DB_PASSWORD|VECTOR_DB_PASSWORD|LDAP_ADMIN_PASSWORD|DEMO_ANALYST_PASSWORD|DEMO_ADMIN_PASSWORD|AUTHENTIK_POSTGRES_PASSWORD|AUTHENTIK_BOOTSTRAP_PASSWORD|AUTHENTIK_LIBRECHAT_CLIENT_SECRET|CUBEJS_SQL_PASSWORD|SUPERSET_SECRET_KEY|SUPERSET_MCP_READER_PASSWORD|MEILI_MASTER_KEY|CODEAPI_REDIS_PASSWORD)
+    POSTGRES_PASSWORD|SUPERSET_DB_PASSWORD|CUBE_DB_PASSWORD|VECTOR_DB_PASSWORD|LDAP_ADMIN_PASSWORD|DEMO_ANALYST_PASSWORD|DEMO_ADMIN_PASSWORD|AUTHENTIK_POSTGRES_PASSWORD|AUTHENTIK_BOOTSTRAP_PASSWORD|AUTHENTIK_LIBRECHAT_CLIENT_SECRET|AUTHENTIK_AUDIT_CONSOLE_CLIENT_SECRET|CUBEJS_SQL_PASSWORD|SUPERSET_SECRET_KEY|SUPERSET_MCP_READER_PASSWORD|MEILI_MASTER_KEY|CODEAPI_REDIS_PASSWORD|AUDIT_WRITER_PASSWORD|AUDIT_READER_PASSWORD)
       rand_alnum 32 ;;
     *) return 1 ;;
   esac
@@ -113,13 +121,13 @@ legacy_key_for() {
     config/superset/.env.example:CUBE_SQL_PASSWORD) printf '%s' CUBEJS_SQL_PASSWORD ;;
     config/authentik/postgres.env.example:POSTGRES_PASSWORD) printf '%s' AUTHENTIK_POSTGRES_PASSWORD ;;
     config/authentik/.env.example:AUTHENTIK_POSTGRESQL__PASSWORD) printf '%s' AUTHENTIK_POSTGRES_PASSWORD ;;
-    config/rag-api/.env.example:POSTGRES_DB) printf '%s' VECTOR_DB_NAME ;;
-    config/rag-api/.env.example:POSTGRES_USER) printf '%s' VECTOR_DB_USER ;;
-    config/rag-api/.env.example:POSTGRES_PASSWORD) printf '%s' VECTOR_DB_PASSWORD ;;
+    config/librechat/extensions/rag-api/.env.example:POSTGRES_DB) printf '%s' VECTOR_DB_NAME ;;
+    config/librechat/extensions/rag-api/.env.example:POSTGRES_USER) printf '%s' VECTOR_DB_USER ;;
+    config/librechat/extensions/rag-api/.env.example:POSTGRES_PASSWORD) printf '%s' VECTOR_DB_PASSWORD ;;
     config/librechat/.env.example:OPENID_CLIENT_ID) printf '%s' AUTHENTIK_LIBRECHAT_CLIENT_ID ;;
     config/librechat/.env.example:OPENID_CLIENT_SECRET) printf '%s' AUTHENTIK_LIBRECHAT_CLIENT_SECRET ;;
     config/ldap/.env.example:LDAP_CONFIG_PASSWORD) printf '%s' LDAP_ADMIN_PASSWORD ;;
-    config/sandbox/.env.example:REDIS_PASSWORD) printf '%s' CODEAPI_REDIS_PASSWORD ;;
+    config/librechat/extensions/sandbox/.env.example:REDIS_PASSWORD) printf '%s' CODEAPI_REDIS_PASSWORD ;;
     *) printf '%s' "$key" ;;
   esac
 }
@@ -158,7 +166,7 @@ write_target() {
           config/authentik/.env.example:AUTHENTIK_POSTGRESQL__PASSWORD)
             value="$(file_value "$target" AUTHENTIK_POSTGRES_PASSWORD || true)"
             ;;
-          config/sandbox/.env.example:REDIS_PASSWORD)
+          config/librechat/extensions/sandbox/.env.example:REDIS_PASSWORD)
             value="$(file_value "$target" CODEAPI_REDIS_PASSWORD || true)"
             ;;
           config/superset/.env.example:SUPERSET_METADATA_URI)
@@ -186,9 +194,11 @@ write_target() {
     fi
   done < "$example"
 
-  if [ "$example" = "config/librechat/.env.example" ]; then
+  if [ "$example" = "config/foundry/.env.example" ]; then
     for key in AZURE_FOUNDRY_BASE_URL AZURE_FOUNDRY_API_KEY AZURE_FOUNDRY_MODEL AZURE_FOUNDRY_TITLE_MODEL; do
-      value="$(legacy_value "$key" || file_value "$target" "$key" || true)"
+      value="$(legacy_value "$key" || true)"
+      [ -n "$value" ] || value="$(file_value "$target" "$key" || true)"
+      [ -n "$value" ] || value="$(file_value config/librechat/.env "$key" || true)"
       [ -n "$value" ] && printf '%s=%s\n' "$key" "$value" >> "$tmp"
     done
   fi

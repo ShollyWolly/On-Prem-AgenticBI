@@ -1,3 +1,4 @@
+# This semantic cube contains customer attributes and applies analyst PII masks.
 cubes:
   - name: customers
     sql_table: public.customer
@@ -28,14 +29,14 @@ cubes:
         type: string
         description: "Given name. PII."
         mask:
-          sql: "LEFT({CUBE}.first_name, 1) || '.'"
+          sql: "LEFT({customers}.first_name, 1) || '.'"
 
       - name: last_name
         sql: last_name
         type: string
         description: "Family name. PII."
         mask:
-          sql: "LEFT({CUBE}.last_name, 1) || '.'"
+          sql: "LEFT({customers}.last_name, 1) || '.'"
 
       - name: full_name
         sql: "{CUBE}.first_name || ' ' || {CUBE}.last_name"
@@ -43,14 +44,14 @@ cubes:
         title: Customer Name
         description: "Full name. PII."
         mask:
-          sql: "LEFT({CUBE}.first_name, 1) || '. ' || LEFT({CUBE}.last_name, 1) || '.'"
+          sql: "LEFT({customers}.first_name, 1) || '. ' || LEFT({customers}.last_name, 1) || '.'"
 
       - name: email
         sql: email
         type: string
         description: "E-mail address. PII."
         mask:
-          sql: "'***@' || SPLIT_PART({CUBE}.email, '@', 2)"
+          sql: "'***@' || SPLIT_PART({customers}.email, '@', 2)"
 
       - name: store_id
         sql: store_id

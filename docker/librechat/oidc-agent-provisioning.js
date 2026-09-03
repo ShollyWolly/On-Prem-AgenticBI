@@ -1,4 +1,4 @@
-
+// This LibreChat hook creates and updates the governed agents owned by each OIDC user.
 const fs = require('fs');
 const path = require('path');
 const { randomBytes } = require('crypto');
@@ -86,6 +86,28 @@ const agentSpecs = () => [
       'Read the revenue dashboard and tell me the three things that matter.',
       'Do the KPI tiles reconcile with the detail charts?',
       'Which charts on this dashboard are misleading, and why?',
+    ],
+  },
+  {
+    name: 'Verified SQL BI Analyst',
+    description: 'Cube Semantic SQL analysis gated by an independent SQL relevance judge.',
+    instructions: readInstructions('agent-verified-sql-instructions.md'),
+    tools: [
+      'get_schema_mcp_verified_sql',
+      'query_sql_mcp_verified_sql',
+      'whoami_mcp_verified_sql',
+      'execute_code',
+      'file_search',
+    ],
+    tool_options: {
+      get_schema_mcp_verified_sql: { allowed_callers: ['direct'] },
+      query_sql_mcp_verified_sql: { allowed_callers: ['direct'] },
+      whoami_mcp_verified_sql: { allowed_callers: ['direct'] },
+    },
+    conversation_starters: [
+      'Which film category earned the most revenue?',
+      'Show monthly revenue by store for the last 12 months.',
+      'Who are the top 10 customers by lifetime value?',
     ],
   },
 ];

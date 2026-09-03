@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This initializer creates or repairs the PostgreSQL and pgvector storage used by the RAG API.
 source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 VDB="$(env_get VECTOR_DB_NAME || echo vectordb)"

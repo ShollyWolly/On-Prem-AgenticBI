@@ -1,3 +1,4 @@
+# This semantic cube defines staff and store dimensions for operational reporting.
 cubes:
   - name: staff
     sql_table: public.staff
@@ -25,7 +26,7 @@ cubes:
         title: Staff Member
         description: "Employee name. PII."
         mask:
-          sql: "LEFT({CUBE}.first_name, 1) || '. ' || LEFT({CUBE}.last_name, 1) || '.'"
+          sql: "LEFT({staff}.first_name, 1) || '. ' || LEFT({staff}.last_name, 1) || '.'"
 
       - name: staff_email
         sql: email
@@ -33,7 +34,7 @@ cubes:
         title: Staff E-mail
         description: "Employee e-mail. PII."
         mask:
-          sql: "'***@' || SPLIT_PART({CUBE}.email, '@', 2)"
+          sql: "'***@' || SPLIT_PART({staff}.email, '@', 2)"
 
     measures:
       - name: staff_count

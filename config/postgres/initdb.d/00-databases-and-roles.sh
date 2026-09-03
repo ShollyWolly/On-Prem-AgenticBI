@@ -1,4 +1,5 @@
 #!/bin/bash
+# This initialization step creates separate PostgreSQL databases and identities for each local service.
 set -euo pipefail
 
 echo ">>> 00-databases-and-roles: creating service databases and read-only roles"

@@ -1,3 +1,4 @@
+# This dataset imports the governed Cube rental analytics view into Superset.
 table_name: rental_analytics
 schema: public
 sql: null

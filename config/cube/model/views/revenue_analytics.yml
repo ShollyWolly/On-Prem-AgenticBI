@@ -1,3 +1,4 @@
+# This view presents payment-based revenue metrics without exposing direct warehouse tables.
 views:
   - name: revenue_analytics
     title: Revenue Analytics

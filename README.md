@@ -45,7 +45,14 @@ flowchart TB
 
   subgraph mcp[MCP services]
     cubeMcp["cube-mcp<br/>OAuth-protected Cube gateway"]
+    sqlMcp["cube-sql-mcp<br/>OAuth-protected Semantic SQL"]
+    verifiedMcp["verified-sql-mcp<br/>judge and audit gate"]
     ssMcp["Superset MCP<br/>read-only mcp_reader identity"]
+  end
+
+  subgraph audit[Verified SQL audit]
+    auditDb[("PostgreSQL<br/>encrypted audit evidence")]
+    auditUi["Audit console<br/>admin-only review"]
   end
 
   subgraph execution[Optional Python execution - sandbox profile]
@@ -79,6 +86,13 @@ flowchart TB
   lc -->|bearer token| cubeMcp
   cubeMcp -->|verify issuer and JWKS| ak
   cubeMcp -->|short-lived Cube JWT| cube
+  lc -->|bearer token| sqlMcp
+  sqlMcp -->|short-lived Cube SQL context| cube
+  lc -->|signed caller context| verifiedMcp
+  verifiedMcp -->|delegated Semantic SQL| sqlMcp
+  verifiedMcp -->|encrypted evidence| auditDb
+  auditUi -->|read audit evidence| auditDb
+  auditUi -->|read conversations| mongo
   lc -->|dashboard review| ssMcp
   ssMcp -->|read dashboards and charts| superset
   user -->|direct LDAP login| superset
@@ -100,13 +114,23 @@ flowchart TB
 |---|---|---|
 | Identity | OpenLDAP, Authentik | LDAP is the source of users and groups; Authentik provides LibreChat OIDC and Cube MCP OAuth. |
 | BI | PostgreSQL, Cube, Superset | Pagila data, governed semantic views, and the dashboard. |
-| Chat | LibreChat, MongoDB, Meilisearch, RAG API | Chat, per-user agents, conversation search, and attached-document search. |
-| Agent tools | `cube-mcp`, `cube-sql-mcp`, `superset-mcp` | Governed Cube REST and Semantic SQL queries plus read-only dashboard inspection. |
+| Chat | LibreChat, MongoDB, Meilisearch, RAG API, audit console | Chat, per-user agents, conversation search, attached-document search, and admin audit review. |
+| Agent tools | `cube-mcp`, `cube-sql-mcp`, `verified-sql-mcp`, `superset-mcp` | Governed Cube REST, Semantic SQL, verified SQL, and read-only dashboard inspection. |
 | Optional sandbox | CodeAPI, NsJail sandbox, Redis, Garage | Python calculations, plots, and file delivery. |
 
 `cube-mcp` is the only service allowed to call Cube's REST API. Cube REST is not
 published on the host. `cube-sql-mcp` is the only agent service allowed to call
 Cube's PostgreSQL endpoint, which also remains available for Superset and local checks.
+`verified-sql-mcp` delegates only to `cube-sql-mcp` and releases successful SQL
+rows only after its separate judge returns a valid pass verdict.
+
+The verified SQL MCP writes one encrypted audit record only after Cube accepts a
+query. The record contains the request, SQL, caller-visible schema, Cube result,
+judge prompts and raw responses, the verdict summary, and final release decision.
+The audit console presents the tool call, SQL, Cube response, verdict, and release
+decision as separate sections; its full judge prompt and raw payload are collapsed
+by default. It is read-only, uses Authentik OIDC, and allows only an unambiguous
+`admins` claim.
 
 ## Authentication and authorization flow
 
@@ -137,7 +161,7 @@ sequenceDiagram
 ## Quick start
 
 1. Create local service configuration, then set Azure Foundry values only in
-   ignored `config/librechat/.env`.
+   ignored `config/foundry/.env`.
 
    The tracked examples use `CHANGE_ME_` placeholders. This command replaces
    them only in ignored local files and keeps shared service values aligned.
@@ -156,8 +180,10 @@ sequenceDiagram
    bash ./bootstrap.sh
    ```
 
-   Bootstrap clones pinned upstream sources, applies the LibreChat OIDC patch,
+   Bootstrap pins upstream sources to LibreChat `v0.8.7`, RAG API `v0.8.0`, and
+   Code Interpreter commit `297fead`, applies the LibreChat OIDC patch,
    builds images, starts profiles, initializes LDAP and storage, and runs checks.
+   It waits for the LibreChat OIDC discovery document before recreating LibreChat.
    The initial sandbox build can take 20-45 minutes.
 
 For a managed targeted startup after bootstrap, use the lifecycle helper. It
@@ -177,7 +203,7 @@ docker compose --profile chat up -d
 docker compose --profile sandbox up -d
 ```
 
-The `chat` profile includes Authentik, LibreChat, both MCP services, RAG API,
+The `chat` profile includes Authentik, LibreChat, all agent MCP services, RAG API,
 MongoDB, and Meilisearch. The `sandbox` profile is optional. Use `cubestore` only
 when testing Cube pre-aggregations.
 
@@ -191,6 +217,7 @@ person's managed agents automatically.
 | Agent | MCP server | What it does |
 |---|---|---|
 | Agentic BI Analyst | `cube` | Discovers governed views and runs structured Cube semantic queries. It can calculate or chart results with the optional code tool. |
+| Verified SQL BI Analyst | `verified_sql` | Runs governed Cube Semantic SQL and returns rows only after the verifier passes and writes its audit evidence. |
 | Dashboard Reviewer | `superset` | Reads existing Superset dashboards, charts, and chart data. It cannot write dashboards or execute arbitrary SQL. |
 
 The analyst always uses the logged-in user's OAuth identity. An analyst-group
@@ -209,6 +236,8 @@ Host ports come from `.env`; the defaults are shown below.
 | Superset | `http://localhost:8088/superset/dashboard/agentic-bi/` | Direct LDAP login; fixed Cube identity. |
 | Cube MCP | `http://localhost:8003/mcp` | OAuth-protected MCP endpoint. |
 | Cube SQL MCP | `http://localhost:8004/mcp` | OAuth-protected Cube Semantic SQL endpoint. |
+| Verified SQL MCP | `http://localhost:8005/mcp` | OAuth-protected SQL verifier endpoint for the managed agent. |
+| Verified SQL audit | `http://localhost:8090` | Admin-only read-only verifier audit and conversation view. |
 | Superset MCP | `http://localhost:5008/mcp` | Internal agent integration; read-only `mcp_reader` service identity. |
 | RAG API | `http://localhost:8000/docs` | Local API reference, not a user UI. |
 
@@ -230,6 +259,7 @@ Cube security is enforced by `config/cube/cube.js` and the view definitions in
 - Query only semantic views and members returned by `get_schema`; raw SQL is not
   available through `cube-mcp`.
 - `cube-sql-mcp` accepts only read-only Semantic SQL against visible views; agents should use an explicit `LIMIT` for exploratory or row-level queries.
+- `verified-sql-mcp` runs Cube SQL first, then judges request-to-SQL relevance without receiving result rows.
 - Administrators also see the admin-only `raw_*` Pagila source-table views through Cube; analysts do not see them.
 
 The Superset exception is intentional. Superset is useful for a shared governed
@@ -240,6 +270,8 @@ dashboard, but it does not pass each dashboard user's identity into Cube.
 ```bash
 docker compose config -q
 docker compose ps
+bash ./scripts/tests/verify-cube-mcp-parity.sh
+bash ./scripts/tests/verify-audit.sh
 ```
 
 After Cube model, role, mask, access-policy, or cross-service changes, validate
@@ -265,6 +297,10 @@ dashboard metadata.
 - The local demonstration uses LDAP without TLS and MongoDB without authentication
   on the private Compose network.
 - Code execution uses NsJail and shares the host kernel.
+- The PostgreSQL verifier audit and console are a demo monitoring solution, not
+  an enterprise observability platform. Replace this path with OpenTelemetry
+  instrumentation, an OpenTelemetry Collector, and a production telemetry backend
+  before relying on it for centralized retention, alerting, or incident response.
 - The seeded Pagila category relationship is many-to-many. The Cube model selects
   one primary category per film so revenue-by-category remains additive.
 

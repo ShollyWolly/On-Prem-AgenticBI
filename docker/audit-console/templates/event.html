@@ -1,0 +1,74 @@
+{# This page displays one decrypted audit event for an authorized administrator. #}
+{% extends "base.html" %}
+{% block body %}
+<p><a href="/conversations/{{ event.conversation_id }}">Back to conversation</a></p>
+<h1>Verified SQL review</h1>
+<section>
+  <dl>
+    <dt>Outcome</dt><dd class="status-{{ event.outcome }}"><strong>{{ event.outcome }}</strong></dd>
+    <dt>Time</dt><dd>{{ event.occurred_at }}</dd>
+    <dt>User</dt><dd>{{ event.oauth_email }}</dd>
+    <dt>Conversation</dt><dd>{{ event.conversation_id }}</dd>
+    <dt>Audit ID</dt><dd>{{ event.audit_id }}</dd>
+    <dt>Rows released</dt><dd>{{ event.row_count if event.row_count is not none else "-" }}</dd>
+    <dt>Judge confidence</dt><dd>{{ "%.0f"|format(event.judge_confidence * 100) ~ "%" if event.judge_confidence is not none else "-" }}</dd>
+    <dt>Judge rationale</dt><dd>{{ event.judge_rationale or "-" }}</dd>
+    <dt>Judge issues</dt><dd>{{ event.judge_issues or "-" }}</dd>
+  </dl>
+</section>
+<div class="review-grid">
+  <section>
+    <h2>Tool call</h2>
+    <p><strong>Tool:</strong> <code>query_sql</code></p>
+    <h3>Parameters</h3>
+    <pre>{{ tool_parameters }}</pre>
+  </section>
+  <section>
+    <h2>Executed SQL</h2>
+    <pre>{{ executed_sql or "No SQL was recorded." }}</pre>
+  </section>
+</div>
+<section class="spaced">
+  <h2>Cube response</h2>
+  <pre>{{ cube_response }}</pre>
+</section>
+<div class="review-grid">
+  <section>
+    <h2>Verifier verdict</h2>
+    <pre>{{ judge_verdict }}</pre>
+  </section>
+  <section>
+    <h2>Response released to the agent</h2>
+    <pre>{{ agent_response }}</pre>
+  </section>
+</div>
+<section class="spaced">
+  <h2>Judge attempts</h2>
+  {% for attempt in judge_attempts %}
+  <article class="attempt">
+    <strong>Attempt {{ attempt.attempt or loop.index }}</strong>
+    {% if attempt.error %}<p class="status-unavailable">{{ attempt.error }}</p>{% endif %}
+    {% if attempt.raw_content %}<h3>Verdict response</h3><pre>{{ attempt.raw_content }}</pre>{% endif %}
+    {% if attempt.response %}<details><summary>Raw provider response</summary><pre>{{ attempt.response | tojson(indent=2) }}</pre></details>{% endif %}
+  </article>
+  {% else %}
+  <p class="muted">No judge attempt was recorded because verification was disabled.</p>
+  {% endfor %}
+</section>
+<details class="spaced">
+  <summary>Verifier system prompt</summary>
+  <pre>{{ judge_system_prompt or "No verifier prompt was recorded." }}</pre>
+</details>
+<details class="spaced">
+  <summary>Verifier request context</summary>
+  <pre>{{ judge_request_context or "No verifier request context was recorded." }}</pre>
+</details>
+<details class="spaced">
+  <summary>Caller-visible Cube schema</summary>
+  <pre>{{ caller_schema }}</pre>
+</details>
+<details class="spaced">
+  <summary>Full encrypted audit payload</summary>
+  <pre>{{ raw_payload }}</pre>
+</details>
+{% endblock %}

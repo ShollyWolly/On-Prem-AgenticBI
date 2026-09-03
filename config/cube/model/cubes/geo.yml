@@ -1,3 +1,4 @@
+# This semantic cube defines the geography dimensions used to group operational data.
 cubes:
   - name: addresses
     sql_table: public.address
@@ -39,7 +40,7 @@ cubes:
         type: string
         description: "Contact phone number. PII."
         mask:
-          sql: "'***-***-' || RIGHT({CUBE}.phone, 3)"
+          sql: "'***-***-' || RIGHT({addresses}.phone, 3)"
 
   - name: cities
     sql_table: public.city

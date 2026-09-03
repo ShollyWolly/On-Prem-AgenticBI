@@ -1,4 +1,4 @@
-
+// This Cube configuration validates signed SQL identities and fails closed for every unsupported role.
 const DENIED = 'denied';
 const jwt = require('jsonwebtoken');
 

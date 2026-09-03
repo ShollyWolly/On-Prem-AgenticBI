@@ -1,0 +1,31 @@
+{# This page shows one conversation and its complete verifier event chain. #}
+{% extends "base.html" %}
+{% block body %}
+<h1>{{ conversation.title }}</h1>
+<p class="muted">{{ conversation.user_email or conversation.user }} | {{ conversation.conversationId }} | {{ conversation.agent_name or conversation.agent_id or "No agent" }}</p>
+{% if not events %}
+<p class="notice">This conversation has no verified SQL audit records. Other agents and MCPs are intentionally not logged by this demo.</p>
+{% endif %}
+<div class="two-column">
+  <section>
+    <h2>Conversation</h2>
+    <div class="timeline"><ul>
+      {% for message in messages %}
+      <li><strong>{{ "User" if message.isCreatedByUser else (message.sender or "Assistant") }}</strong> <span class="muted">{{ message.createdAt }}</span><br>{{ message.text or "[No text]" }}</li>
+      {% else %}
+      <li class="muted">No persisted messages.</li>
+      {% endfor %}
+    </ul></div>
+  </section>
+  <section>
+    <h2>Verified SQL chain</h2>
+    <div class="timeline"><ul>
+      {% for event in events %}
+      <li><a href="/events/{{ event.event_id }}"><strong class="status-{{ event.outcome }}">{{ event.outcome }}</strong></a><br><span class="muted">{{ event.occurred_at }} | {{ event.row_count if event.row_count is not none else "-" }} rows | {{ event.duration_ms }} ms</span></li>
+      {% else %}
+      <li class="muted">No audit chain.</li>
+      {% endfor %}
+    </ul></div>
+  </section>
+</div>
+{% endblock %}

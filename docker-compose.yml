@@ -1,3 +1,4 @@
+# This Compose file defines the local services, profiles, mounts, and network boundaries for the demo.
 name: agentic-bi
 
 
@@ -54,6 +55,9 @@ services:
     container_name: abi-postgres
     env_file:
       - ./config/postgres/.env
+      - ./config/audit/core/.env
+      - ./config/audit/writer/.env
+      - ./config/audit/console/.env
     environment:
       TZ: UTC
       PGTZ: UTC
@@ -275,7 +279,7 @@ services:
   # This is the sole OAuth-protected route from agents to the Cube semantic layer.
   cube-mcp:
     build:
-      context: ./docker/cube-mcp
+      context: ./docker/mcp/cube
     image: abi/cube-mcp:local
     container_name: abi-cube-mcp
     profiles: [chat]
@@ -285,7 +289,7 @@ services:
       authentik-server:
         condition: service_healthy
     env_file:
-      - ./config/cube-mcp/.env
+      - ./config/mcp/cube/.env
     environment:
       CUBE_API_URL: http://cube:4000/cubejs-api/v1
       AUTHENTIK_CUBE_ISSUER: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/cube-mcp/
@@ -301,7 +305,7 @@ services:
 
   cube-sql-mcp:
     build:
-      context: ./docker/cube-sql-mcp
+      context: ./docker/mcp/cube-sql
     image: abi/cube-sql-mcp:local
     container_name: abi-cube-sql-mcp
     profiles: [chat]
@@ -311,7 +315,7 @@ services:
       authentik-server:
         condition: service_healthy
     env_file:
-      - ./config/cube-sql-mcp/.env
+      - ./config/mcp/cube-sql/.env
     environment:
       CUBE_SQL_HOST: cube
       CUBE_SQL_PORT: "15432"
@@ -325,6 +329,36 @@ services:
     expose: ["8000"]
     ports:
       - "${CUBE_SQL_MCP_HOST_PORT:-8004}:8000"
+    networks: [abi]
+    restart: unless-stopped
+
+  verified-sql-mcp:
+    build:
+      context: .
+      dockerfile: ./docker/mcp/verified-sql/Dockerfile
+    image: abi/sql-verifier-mcp:local
+    container_name: abi-sql-verifier-mcp
+    profiles: [chat]
+    depends_on:
+      cube-sql-mcp:
+        condition: service_started
+      authentik-server:
+        condition: service_healthy
+    env_file:
+      - ./config/foundry/.env
+      - ./config/mcp/verified-sql/.env
+      - ./config/audit/core/.env
+      - ./config/audit/writer/.env
+    environment:
+      CUBE_SQL_MCP_URL: http://cube-sql-mcp:8000/mcp
+      AUTHENTIK_CUBE_ISSUER: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/cube-mcp/
+      AUTHENTIK_CUBE_JWKS_URL: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/cube-mcp/jwks/
+      VERIFIED_SQL_MCP_PUBLIC_URL: http://verified-sql-mcp:8000
+    extra_hosts:
+      - "authentik.localhost:host-gateway"
+    expose: ["8000"]
+    ports:
+      - "${VERIFIED_SQL_MCP_HOST_PORT:-8005}:8000"
     networks: [abi]
     restart: unless-stopped
 
@@ -355,7 +389,7 @@ services:
       postgres:
         condition: service_healthy
     env_file:
-      - ./config/rag-api/.env
+      - ./config/librechat/extensions/rag-api/.env
     environment:
       RAG_PORT: "8000"
       RAG_HOST: 0.0.0.0
@@ -388,6 +422,8 @@ services:
     build:
       context: ./vendor/LibreChat
       dockerfile: ../../docker/librechat/Dockerfile
+      args:
+        NODE_MAX_OLD_SPACE_SIZE: ${LIBRECHAT_BUILD_NODE_MAX_OLD_SPACE_SIZE:-2048}
     image: abi/librechat:v0.8.7
     container_name: abi-librechat
     profiles: [chat]
@@ -400,12 +436,16 @@ services:
         condition: service_started
       cube-sql-mcp:
         condition: service_started
+      verified-sql-mcp:
+        condition: service_started
       rag-api:
         condition: service_healthy
       authentik-server:
         condition: service_healthy
     env_file:
+      - ./config/foundry/.env
       - ./config/librechat/.env
+      - ./config/audit/core/.env
     environment:
       RAG_API_URL: http://rag-api:8000
       NODE_OPTIONS: --dns-result-order=ipv4first
@@ -451,12 +491,48 @@ services:
     networks: [abi]
     restart: unless-stopped
 
+  audit-console:
+    build:
+      context: .
+      dockerfile: ./docker/audit-console/Dockerfile
+    image: abi/audit-console:local
+    container_name: abi-audit-console
+    profiles: [chat]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      authentik-server:
+        condition: service_healthy
+    env_file:
+      - ./config/audit/core/.env
+      - ./config/audit/console/.env
+      - ./config/authentik/.env
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/LibreChat
+      AUTHENTIK_AUDIT_CONSOLE_ISSUER: http://authentik.localhost:${AUTHENTIK_HOST_PORT:-9000}/application/o/audit-console/
+      AUTHENTIK_AUDIT_CONSOLE_CLIENT_ID: audit-console
+      AUDIT_CONSOLE_PUBLIC_URL: http://localhost:${AUDIT_CONSOLE_HOST_PORT:-8090}
+    extra_hosts:
+      - "authentik.localhost:host-gateway"
+    ports:
+      - "${AUDIT_CONSOLE_HOST_PORT:-8090}:8090"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks: [abi]
+    restart: unless-stopped
+
   meilisearch:
     image: getmeili/meilisearch:v1.35.1
     container_name: abi-meilisearch
     profiles: [chat]
     env_file:
-      - ./config/meilisearch/.env
+      - ./config/librechat/extensions/meilisearch/.env
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
@@ -506,7 +582,7 @@ services:
     container_name: abi-garage
     profiles: [sandbox]
     env_file:
-      - ./config/sandbox/.env
+      - ./config/librechat/extensions/sandbox/.env
     volumes:
       - ./config/garage/garage.toml:/etc/garage.toml:ro
       - garage_meta:/var/lib/garage/meta
@@ -528,7 +604,7 @@ services:
     container_name: abi-codeapi-redis
     profiles: [sandbox]
     env_file:
-      - ./config/sandbox/.env
+      - ./config/librechat/extensions/sandbox/.env
     command: ["/bin/sh", "-c", "exec redis-server --requirepass \"$$CODEAPI_REDIS_PASSWORD\""]
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$$CODEAPI_REDIS_PASSWORD\" ping"]
@@ -552,7 +628,7 @@ services:
       codeapi-redis:
         condition: service_healthy
     env_file:
-      - ./config/sandbox/.env
+      - ./config/librechat/extensions/sandbox/.env
     environment:
       FILE_SERVER_PORT: "3000"
       REDIS_HOST: codeapi-redis
@@ -574,7 +650,7 @@ services:
       codeapi-redis:
         condition: service_healthy
     env_file:
-      - ./config/sandbox/.env
+      - ./config/librechat/extensions/sandbox/.env
     environment:
       TOOL_CALL_SERVER_PORT: "3033"
       TOOL_CALL_REQUEST_TIMEOUT: "300000"
@@ -618,7 +694,7 @@ services:
     volumes:
       - codeapi_pkgs:/pkgs:ro
     env_file:
-      - ./config/sandbox/.env
+      - ./config/librechat/extensions/sandbox/.env
     environment:
       KVM_ENABLED: "false"
       SANDBOX_USE_CGROUPV2: "false"
@@ -671,7 +747,7 @@ services:
       codeapi-toolcall:
         condition: service_started
     env_file:
-      - ./config/sandbox/.env
+      - ./config/librechat/extensions/sandbox/.env
     environment:
       LOCAL_MODE: "true"
       PORT: "3112"

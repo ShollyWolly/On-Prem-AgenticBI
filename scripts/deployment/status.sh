@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This lifecycle command reports the state of the selected Compose profiles.
 source "$(dirname "${BASH_SOURCE[0]}")/../general/lib.sh"
 
 usage() {

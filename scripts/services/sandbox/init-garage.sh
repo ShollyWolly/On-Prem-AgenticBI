@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This initializer configures the local Garage object store required by sandbox file delivery.
 source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 ACCESS_KEY="$(env_require MINIO_ACCESS_KEY)"

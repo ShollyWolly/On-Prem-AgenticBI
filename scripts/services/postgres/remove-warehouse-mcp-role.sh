@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# This cleanup removes legacy direct warehouse MCP database access from the demo.
 source "$(dirname "${BASH_SOURCE[0]}")/../../general/lib.sh"
 
 container_running abi-postgres || die "abi-postgres is not running"

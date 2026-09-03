@@ -1,3 +1,4 @@
+# These raw cubes are registered only for administrators who need governed source-table access.
 cubes:
   - name: raw_source_actor
     sql_table: public.actor
