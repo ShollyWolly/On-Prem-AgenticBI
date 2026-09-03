@@ -139,17 +139,23 @@ write_target() {
     if [[ "$line" =~ ^([A-Z0-9_]+)=(.*)$ ]]; then
       key="${BASH_REMATCH[1]}"
       value=""
-      case "${example}:${key}" in
-        config/authentik/postgres.env.example:POSTGRES_DB|config/authentik/postgres.env.example:POSTGRES_USER)
-          value="${BASH_REMATCH[2]}"
-          ;;
-        *)
-          legacy_key="$(legacy_key_for "$example" "$key")"
-          if [ "$FORCE" -eq 0 ]; then
-            value="$(legacy_value "$legacy_key" || true)"
-          fi
-          ;;
-      esac
+      # Superset's static Cube connection must always use Cube's canonical SQL password.
+      if [ "$example" = "config/superset/.env.example" ] && [ "$key" = "CUBE_SQL_PASSWORD" ]; then
+        value="$(file_value config/cube/env/.env CUBEJS_SQL_PASSWORD || true)"
+      fi
+      if [ -z "$value" ]; then
+        case "${example}:${key}" in
+          config/authentik/postgres.env.example:POSTGRES_DB|config/authentik/postgres.env.example:POSTGRES_USER)
+            value="${BASH_REMATCH[2]}"
+            ;;
+          *)
+            legacy_key="$(legacy_key_for "$example" "$key")"
+            if [ "$FORCE" -eq 0 ]; then
+              value="$(legacy_value "$legacy_key" || true)"
+            fi
+            ;;
+        esac
+      fi
       if [ "$example" = "config/superset/.env.example" ] && [ "$key" = "SUPERSET_METADATA_URI" ]; then
         password="$(legacy_value SUPERSET_DB_PASSWORD || true)"
         user="$(legacy_value SUPERSET_DB_USER || true)"
